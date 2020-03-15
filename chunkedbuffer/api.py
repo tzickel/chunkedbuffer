@@ -2,17 +2,40 @@ from collections import deque
 
 
 # TODO optional extra optimization, return something like a memoryview over multiple chunks instead of materializing them as an bytearray
-# TODO for those who need it, return a bytes instead of a bytearray (requires some c-api hacking)
 # TODO add async module API with backpresure blocking
 # TODO handle EOF/error
 # TODO consistent _ and space naming
 # TODO close api for all
 # TODO on exception close everything?
 # TODO async safe but not thread safe ?
-# TODO text encoding ?
+# TODO text encoding per read ?
 
 
 DEFAULT_CHUNK_SIZE = 2**14
+
+
+class CreateByteArray:
+    def __init__(self, size):
+        self._data = bytearray(size)
+        self._pos = 0
+
+    def append(self, chunk, length=None):
+        if length is None:
+            length = chunk.length()
+        p = self._pos
+        self._data[p:p + length] = chunk.readable(length)
+        self._pos += length
+
+    def materialize(self):
+        ret = self._data
+        self._data = None
+        return ret
+
+
+try:
+    from .bytes import CreateBytes as CreateOutput
+except ImportError:
+    CreateOutput = CreateByteArray
 
 
 class Chunk:
@@ -43,11 +66,11 @@ class Chunk:
         return self._end - self._start
 
     def readable(self, howmuch=None):
-        if howmuch is not None and howmuch < 0:
-            raise NotImplementedError()
         if howmuch is None:
             end = self._end
         else:
+            if howmuch < 0:
+                raise NotImplementedError()
             end = min(self._start + howmuch, self._end)
         return self._memview[self._start:end]
 
@@ -63,10 +86,12 @@ class Chunk:
             end = self._end
         if end < -1:
             raise NotImplementedError()
-        # TODO make sure this is sane
         end = min(self._start + end, self._end)
         ret = self._buffer.find(byte, self._start + start, end)
         return ret if ret == -1 else (ret - self._start)
+
+    def raw(self):
+        return self._buffer, self._start, self._end
 
 
 # TODO do some memory cleaning on memory limit
@@ -151,10 +176,9 @@ class Pipe:
         return res_idx if found else -1
 
     # TODO don't always scan from the start
-    # TODO don't return the newline ?
     # TODO abstract this API to a general find ?
     # TODO support readline of '\n' and '\r\n' (and returning them or not)
-    def readline(self):
+    def readline(self, with_ending=True):
         if self._bytes_unconsumed == 0:
             return None
         idx_r = self.findbyte(b'\r')
@@ -163,7 +187,13 @@ class Pipe:
         while True:
             idx_n = self.findbyte(b'\n', idx_r + 1, idx_r + 2)
             if idx_n != -1:
-                return self.readatmostbytes(idx_n + 1)
+                if with_ending:
+                    return self.readatmostbytes(idx_n + 1)
+                else:
+                    ret = self.readatmostbytes(idx_n - 1)
+                    # TODO (optimize) don't materialize this
+                    self.readatmostbytes(2)
+                    return ret
             idx_r = self.findbyte(b'\r', idx_r + 1)
             if idx_r == -1:
                 return None
@@ -179,33 +209,34 @@ class Pipe:
             nbytes = self._bytes_unconsumed
         if self._bytes_unconsumed == 0:
             return None
-        # TODO hack a way to return bytes instead of bytearray with ctypes ? :)
-        ret = bytearray(nbytes)
-        retpos = 0
+        ret = CreateOutput(nbytes)
         to_remove = 0
         self._bytes_unconsumed -= nbytes
         for chunk in self._chunks:
             chunk_length = chunk.length()
             # TODO if it's not yet full, we can still use it (only if it's the last chunk...)
             if nbytes >= chunk_length:
-                ret[retpos:retpos + chunk_length] = chunk.readable()
-                retpos += chunk_length
+                ret.append(chunk, chunk_length)
                 to_remove += 1
                 self._pool.return_chunk(chunk)
                 if self._last == chunk:
                     self._last = None
                 nbytes -= chunk_length
             else:
-                ret[retpos:retpos + nbytes] = chunk.readable(nbytes)
+                ret.append(chunk, nbytes)
                 chunk.consume(nbytes)
                 break
         while to_remove:
             self._chunks.popleft()
             to_remove -= 1
+        ret = ret.materialize()
         return ret
 
     def closed(self):
         return self._ended
+
+    def __len__(self):
+        return self._bytes_unconsumed
 
 
 global_pool = Pool()
@@ -219,6 +250,10 @@ if __name__ == "__main__":
     assert pipe.readbytes(100) == None
     assert pipe.readbytes(4) == b'test'
     buff = pipe.get_buffer()
-    buff[:5] = b'ng\r\nx'
+    buff[:5] = b'ng\r\nt'
     pipe.buffer_written(5)
-    print(pipe.readline())
+    assert pipe.readline() == b'ing\r\n'
+    buff = pipe.get_buffer(8)
+    buff[:8] = b'esting\r\n'
+    pipe.buffer_written(8)
+    assert pipe.readline(with_ending=False) == b'testing'

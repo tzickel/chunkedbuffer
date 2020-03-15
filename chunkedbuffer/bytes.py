@@ -28,7 +28,6 @@ class CreateBytes:
         self._ptr = p + length
 
     def materialize(self):
-        # TODO is reference counting ok ?
         ret = self._data
         self._data = None
         return ret

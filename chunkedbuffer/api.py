@@ -180,10 +180,18 @@ class Pipe:
     # TODO support readline of '\n' and '\r\n' (and returning them or not)
     def readline(self, with_ending=True):
         if self._bytes_unconsumed == 0:
+            # TODO if it was an exception, propogate that ?
+            if self._ended:
+                return b''
+            else:
+                return None
             return None
         idx_r = self.findbyte(b'\r')
         if idx_r == -1:
-            return None
+            if self._ended:
+                return b''
+            else:
+                return None
         while True:
             idx_n = self.findbyte(b'\n', idx_r + 1, idx_r + 2)
             if idx_n != -1:
@@ -196,11 +204,18 @@ class Pipe:
                     return ret
             idx_r = self.findbyte(b'\r', idx_r + 1)
             if idx_r == -1:
-                return None
+                if self._ended:
+                    return b''
+                else:
+                    return None
 
     def readbytes(self, nbytes):
         if self._bytes_unconsumed < nbytes:
-            return None
+            # TODO is this the correct behaviour ?
+            if self._ended:
+                return b''
+            else:
+                return None
         return self.readatmostbytes(nbytes)
 
     # TODO error on 0 length ?
@@ -208,7 +223,11 @@ class Pipe:
         if nbytes == -1:
             nbytes = self._bytes_unconsumed
         if self._bytes_unconsumed == 0:
-            return None
+            if self._ended:
+                # TODO if it was an exception, propogate that ?
+                return b''
+            else:
+                return None
         ret = CreateOutput(nbytes)
         to_remove = 0
         self._bytes_unconsumed -= nbytes

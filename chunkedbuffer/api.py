@@ -54,7 +54,8 @@ class Chunk:
         self._start += nbytes
 
     def findbyte(self, byte, start=0, end=None):
-        if len(byte) > 1:
+        # TODO move this check to the parent
+        if not isinstance(byte, int) and len(byte) > 1:
             raise Exception('Can only find one byte')
         if start < 0:
             raise NotImplementedError()
@@ -204,7 +205,7 @@ class Pipe:
         ret_data = []
         to_remove = 0
         nbytes = min(nbytes, self._bytes_unconsumed)
-        if not _take:
+        if _take:
             self._bytes_unconsumed -= nbytes
         for chunk in self._chunks:
             chunk_length = chunk.length()
@@ -233,11 +234,27 @@ class Pipe:
     def __len__(self):
         return self._bytes_unconsumed
 
+    # TODO maybe add start, end ?
     def peek(self, nbytes):
         return self.readatmostbytes(nbytes, _take=False)
 
     def find(self, s, start=0, end=-1):
-        pass
+        # we can optimize for end - length of s
+        other_s = s[1:]
+        other_s_len = len(other_s)
+        last_tried_position = start
+        while True:
+            start_idx = self.findbyte(s[0], last_tried_position, end)
+            if start_idx == -1:
+                return -1
+            curr_idx = start_idx
+            for letter in other_s:
+                if self.findbyte(letter, curr_idx + 1, curr_idx + 2) == -1:
+                    break
+                curr_idx += 1
+            if other_s_len == curr_idx - start_idx:
+                return start_idx
+            last_tried_position += 1
 
 
 global_pool = Pool()

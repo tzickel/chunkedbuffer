@@ -14,30 +14,6 @@ from collections import deque
 DEFAULT_CHUNK_SIZE = 2**14
 
 
-class CreateByteArray:
-    def __init__(self, size):
-        self._data = bytearray(size)
-        self._pos = 0
-
-    def append(self, chunk, length=None):
-        if length is None:
-            length = chunk.length()
-        p = self._pos
-        self._data[p:p + length] = chunk.readable(length)
-        self._pos += length
-
-    def materialize(self):
-        ret = self._data
-        self._data = None
-        return ret
-
-
-try:
-    from .bytes import CreateBytes as CreateOutput
-except ImportError:
-    CreateOutput = CreateByteArray
-
-
 class Chunk:
     def __init__(self, size):
         self._size = size
@@ -89,9 +65,6 @@ class Chunk:
         end = min(self._start + end, self._end)
         ret = self._buffer.find(byte, self._start + start, end)
         return ret if ret == -1 else (ret - self._start)
-
-    def raw(self):
-        return self._buffer, self._start, self._end
 
 
 # TODO do some memory cleaning on memory limit
@@ -219,7 +192,7 @@ class Pipe:
         return self.readatmostbytes(nbytes)
 
     # TODO error on 0 length ?
-    def readatmostbytes(self, nbytes=-1):
+    def readatmostbytes(self, nbytes=-1, _take=True):
         if nbytes == -1:
             nbytes = self._bytes_unconsumed
         if self._bytes_unconsumed == 0:
@@ -228,27 +201,30 @@ class Pipe:
                 return b''
             else:
                 return None
-        ret = CreateOutput(nbytes)
+        ret_data = []
         to_remove = 0
-        self._bytes_unconsumed -= nbytes
+        nbytes = min(nbytes, self._bytes_unconsumed)
+        if not _take:
+            self._bytes_unconsumed -= nbytes
         for chunk in self._chunks:
             chunk_length = chunk.length()
             # TODO if it's not yet full, we can still use it (only if it's the last chunk...)
             if nbytes >= chunk_length:
-                ret.append(chunk, chunk_length)
-                to_remove += 1
-                self._pool.return_chunk(chunk)
-                if self._last == chunk:
-                    self._last = None
+                ret_data.append(chunk.readable())
+                if _take:
+                    to_remove += 1
+                    if self._last == chunk:
+                        self._last = None
                 nbytes -= chunk_length
             else:
-                ret.append(chunk, nbytes)
-                chunk.consume(nbytes)
+                ret_data.append(chunk.readable(nbytes))
+                if _take:
+                    chunk.consume(nbytes)
                 break
         while to_remove:
-            self._chunks.popleft()
+            self._pool.return_chunk(self._chunks.popleft())
             to_remove -= 1
-        ret = ret.materialize()
+        ret = b''.join(ret_data)
         return ret
 
     def closed(self):
@@ -256,6 +232,12 @@ class Pipe:
 
     def __len__(self):
         return self._bytes_unconsumed
+
+    def peek(self, nbytes):
+        return self.readatmostbytes(nbytes, _take=False)
+
+    def find(self, s, start=0, end=-1):
+        pass
 
 
 global_pool = Pool()
@@ -275,4 +257,5 @@ if __name__ == "__main__":
     buff = pipe.get_buffer(8)
     buff[:8] = b'esting\r\n'
     pipe.buffer_written(8)
+    assert pipe.peek(7) == b'testing'
     assert pipe.readline(with_ending=False) == b'testing'

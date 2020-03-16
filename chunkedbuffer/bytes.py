@@ -12,7 +12,6 @@ _PyByteArray_AsString.restype = ctypes.c_void_p
 _PyByteArray_AsString.argtypes = ctypes.py_object,
 
 
-# TODO do I need to manually put a NULL in the end ?
 class CreateBytes:
     def __init__(self, size):
         self._data = _PyBytes_FromStringAndSize(None, size)

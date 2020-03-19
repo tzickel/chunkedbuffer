@@ -15,6 +15,8 @@ DEFAULT_CHUNK_SIZE = 2**14
 
 
 class Chunk:
+    __slots__ = '_size', '_buffer', '_memview', '_start', '_end'
+
     def __init__(self, size):
         self._size = size
         self._buffer = bytearray(size)
@@ -70,6 +72,8 @@ class Chunk:
 
 # TODO do some memory cleaning on memory limit
 class Pool:
+    __slots__ = '_chunks'
+
     def __init__(self):
         self._chunks = {}
 
@@ -88,6 +92,8 @@ class Pool:
 
 
 class Pipe:
+    __slots__ = '_on_new_data', '_pool', '_chunks', '_last', '_bytes_unconsumed', '_ended'
+
     def __init__(self, on_new_data=None, pool=None):
         self._on_new_data = on_new_data
         self._pool = pool or global_pool
@@ -102,6 +108,7 @@ class Pipe:
             if self._last:
                 sizehint = self._last.free() or -1
             if sizehint == -1:
+                # TODO maybe learn from previous reads, what's a good default instead of this.
                 sizehint = DEFAULT_CHUNK_SIZE
         if not self._last or self._last.free() < sizehint:
             self._last = self._pool.get_chunk(sizehint)
@@ -124,7 +131,6 @@ class Pipe:
 
     # Read API
     # TODO support negative indexes for start and end ?
-    # TODO work hard and make it able to find more than one byte ?
     def findbyte(self, byte, start=0, end=-1):
         if start < 0:
             raise NotImplementedError()
@@ -183,6 +189,7 @@ class Pipe:
                 else:
                     return None
 
+    # TODO add -1 for till EOF support
     def readbytes(self, nbytes):
         if self._bytes_unconsumed < nbytes:
             # TODO is this the correct behaviour ?
@@ -238,6 +245,7 @@ class Pipe:
     def peek(self, nbytes):
         return self.readatmostbytes(nbytes, _take=False)
 
+    # TODO optimize for finding same thing from last known position
     def find(self, s, start=0, end=-1):
         # we can optimize for end - length of s
         other_s = s[1:]
@@ -255,6 +263,13 @@ class Pipe:
             if other_s_len == curr_idx - start_idx:
                 return start_idx
             last_tried_position += 1
+
+    def readuntil(self, seperator, with_seperator=True):
+        # TODO optimize for 1 char seperator (or int)
+        idx = self.find(seperator)
+        if idx == -1:
+            return None
+        return self.readatmostbytes(idx + len(seperator) if with_seperator else idx)
 
 
 global_pool = Pool()

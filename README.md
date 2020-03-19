@@ -1,5 +1,5 @@
 ## What?
-An attempt to make a more efficient bytearray (for buffered usage) and Buffered I/O replacement for Python.
+An attempt to make a more efficient bytearray (for buffered usage) and Buffered I/O replacement including asynchronous for Python.
 
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
@@ -11,7 +11,6 @@ The data is copied only once, when consumed by the reader.
 The buffers are re-used by a pool to improve performence, especially in concurrent scenarios.
 
 ## Roadmap
-- [ ] Add support for async/await workflows
 - [ ] API Finalization
 - [ ] Choose license
 - [ ] Resolve all TODO in code

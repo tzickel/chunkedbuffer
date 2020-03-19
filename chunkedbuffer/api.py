@@ -155,23 +155,24 @@ class Pipe:
                 break
         return res_idx if found else -1
 
+    def _check_eof(self):
+        if self._ended:
+            if self._ended is True:
+                return b''
+            else:
+                raise self._ended
+        else:
+            return None
+
     # TODO don't always scan from the start
     # TODO abstract this API to a general find ?
     # TODO support readline of '\n' and '\r\n' (and returning them or not)
     def readline(self, with_ending=True):
         if self._bytes_unconsumed == 0:
-            # TODO if it was an exception, propogate that ?
-            if self._ended:
-                return b''
-            else:
-                return None
-            return None
+            return self._check_eof()
         idx_r = self.findbyte(b'\r')
         if idx_r == -1:
-            if self._ended:
-                return b''
-            else:
-                return None
+            return self._check_eof()
         while True:
             idx_n = self.findbyte(b'\n', idx_r + 1, idx_r + 2)
             if idx_n != -1:
@@ -184,19 +185,13 @@ class Pipe:
                     return ret
             idx_r = self.findbyte(b'\r', idx_r + 1)
             if idx_r == -1:
-                if self._ended:
-                    return b''
-                else:
-                    return None
+                return self._check_eof()
 
     # TODO add -1 for till EOF support
     def readbytes(self, nbytes):
         if self._bytes_unconsumed < nbytes:
             # TODO is this the correct behaviour ?
-            if self._ended:
-                return b''
-            else:
-                return None
+            return self._check_eof()
         return self.readatmostbytes(nbytes)
 
     # TODO error on 0 length ?
@@ -204,11 +199,7 @@ class Pipe:
         if nbytes == -1:
             nbytes = self._bytes_unconsumed
         if self._bytes_unconsumed == 0:
-            if self._ended:
-                # TODO if it was an exception, propogate that ?
-                return b''
-            else:
-                return None
+            return self._check_eof()
         ret_data = []
         to_remove = 0
         nbytes = min(nbytes, self._bytes_unconsumed)
@@ -268,7 +259,7 @@ class Pipe:
         # TODO optimize for 1 char seperator (or int)
         idx = self.find(seperator)
         if idx == -1:
-            return None
+            return self._check_eof()
         return self.readatmostbytes(idx + len(seperator) if with_seperator else idx)
 
 

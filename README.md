@@ -62,11 +62,40 @@ Pipe(on_new_data=None, pool=None)
     eof(exception=None)
 
     # Read API
-    findbyte(byte, start=0, end=-1)
-    readline()
+    readline(with_ending=True)
     readbytes(nbytes)
     readatmostbytes(nbytes=-1)
+    readuntil(seperator, with_seperator=True))
+
+    findbyte(byte, start=0, end=-1)
+    find(s, start=0, end=-1)
+
+    peek(nbytes)
+
+    __len__()
     closed()
+```
+
+
+```python
+ChunkedBufferStream(limit=2**16, pool=None, newline=b'\n')
+    create_connection(*args, **kwargs)
+    create_unix_connection(*args, **kwargs)
+
+    peername
+    socket
+
+    async awrite(data)
+    async awritelines(stream)
+    async aclose_write()
+    async aclose()
+
+    async readline()
+    async readuntil(seperator, with_sepeartor=True)
+    async read(n=-1)
+    async readexactly(n)
+    __aiter__()
+    async __anext__()
 ```
 
 ## Partially inspired by

@@ -255,12 +255,18 @@ class Pipe:
                 return start_idx
             last_tried_position += 1
 
+    #TODO skip_seperator
     def readuntil(self, seperator, with_seperator=True):
         # TODO optimize for 1 char seperator (or int)
         idx = self.find(seperator)
         if idx == -1:
             return self._check_eof()
-        return self.readatmostbytes(idx + len(seperator) if with_seperator else idx)
+        if with_seperator:
+            return self.readatmostbytes(idx + len(seperator))
+        else:
+            ret = self.readatmostbytes(idx)
+            self.readatmostbytes(len(seperator))
+            return ret
 
 
 global_pool = Pool()

@@ -12,21 +12,24 @@ except ImportError:
 # TODO add support for other transports (non pausable ? read only ? write only ?)
 
 
-# TODO use this...
-def writelines(transport, lines):
-    sock = transport._sock
-    sendmsg = getattr(sock, "sendmsg", False)
-    if sendmsg and not transport._buffer:
-        try:
-            sendmsg(lines)
-        except:
-            transport.write(b''.join(lines))
-    else:
-        transport.write(b''.join(lines))
+def func_with_leftovers(func, stream):
+    n = func(stream)
+    leftovers = []
+    whole = False
+    for item in stream:
+        if whole:
+            leftovers.append(item)
+            continue
+        n -= len(item)
+        if n >= 0:
+            continue
+        leftovers.append(memoryview(item)[n:])
+        whole = True
+    return leftovers
 
 
 class ChunkedBufferStream(BaseProtocol):
-    __slots__ = '_limit', '_pipe', '_newline', '_transport', '_write_drained', '_has_data', '_paused'
+    __slots__ = '_limit', '_pipe', '_newline', '_transport', '_write_drained', '_has_data', '_paused', '_sendmsg'
 
     @classmethod
     async def create_connection(cls, *args, **kwargs):
@@ -53,9 +56,11 @@ class ChunkedBufferStream(BaseProtocol):
         self._write_drained.set()
         self._has_data = Event()
         self._paused = False
+        self._sendmsg = False
 
     def connection_made(self, transport):
         self._transport = transport
+        self._sendmsg = getattr(transport._sock, 'sendmsg', False)
 
     def connection_lost(self, exc):
         self._pipe.eof(exc)
@@ -103,8 +108,15 @@ class ChunkedBufferStream(BaseProtocol):
         await self._write_drained.wait()
 
     async def awritelines(self, stream):
-        for item in stream:
-            self._transport.write(item)
+        if self._sendmsg and not self._transport._buffer:
+            # TODO handle if it's > IOV_MAX
+            stream = func_with_leftovers(self._sendmsg, stream)
+            if stream:
+                for item in stream:
+                    self._transport.write(item)
+        else:
+            for item in stream:
+                self._transport.write(item)
         await self._write_drained.wait()
 
     async def aclose_write(self):
@@ -131,11 +143,11 @@ class ChunkedBufferStream(BaseProtocol):
     async def readline(self):
         return await self.readuntil(self._newline)
 
-    async def readuntil(self, seperator, with_sepeartor=True):
-        ret = self._pipe.readuntil(sepeartor, with_seperator)
+    async def readuntil(self, seperator, with_seperator=True):
+        ret = self._pipe.readuntil(seperator, with_seperator)
         while ret is None:
             await self._wait_for_data()
-            ret = self._pipe.readuntil(sepeartor, with_seperator)
+            ret = self._pipe.readuntil(seperator, with_seperator)
         self._maybe_resume_reading()
         return ret
 

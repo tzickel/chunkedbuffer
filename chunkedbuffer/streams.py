@@ -10,6 +10,7 @@ except ImportError:
 
 # TODO add support for servers
 # TODO add support for other transports (non pausable ? read only ? write only ?)
+# TODO add support to set writer high mark limit
 
 
 def func_with_leftovers(func, stream):

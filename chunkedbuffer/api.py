@@ -198,13 +198,16 @@ class Pipe:
     def peek(self, nbytes):
         return self.readatmostbytes(nbytes, _take=False)
 
+    def _fullfill_or_error(self, msg):
+        if self._bytes_unconsumed == 0:
+            return self._check_eof()
+        elif self._ended:
+            raise PartialReadError(msg, self.readatmostbytes())
+        return None
+
     def readbytes(self, nbytes):
         if self._bytes_unconsumed < nbytes:
-            if self._bytes_unconsumed == 0:
-                return self._check_eof()
-            elif self._ended:
-                raise PartialReadError("Requested %d bytes but encountered EOF" % nbytes, self.readatmostbytes())
-            return None
+            return self._fullfill_or_error("Requested %d bytes but encountered EOF" % nbytes)
         return self.readatmostbytes(nbytes)
 
     def readatmostbytes(self, nbytes=-1, _take=True, _skip=False):
@@ -253,12 +256,7 @@ class Pipe:
             length = len(seperator)
             idx = self.find(seperator)
         if idx == -1:
-            # TODO We should refactor this, since readbytes has the same code...
-            if self._bytes_unconsumed == 0:
-                return self._check_eof()
-            elif self._ended:
-                raise PartialReadError("Requested to readuntil %s but encountered EOF" % seperator, self.readatmostbytes())
-            return None
+            return self._fullfill_or_error("Requested to readuntil %s but encountered EOF" % seperator)
         if skip_seperator:
             ret = self.readatmostbytes(idx)
             self.readatmostbytes(length, _skip=True)

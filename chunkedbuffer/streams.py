@@ -162,6 +162,14 @@ class ChunkedBufferStream(BaseProtocol):
         self._maybe_resume_reading()
         return ret        
 
+    async def readatmost(self, n=-1):
+        ret = self._pipe.readatmostbytes(n)
+        if ret is None:
+            await self._wait_for_data()
+            ret = self._pipe.readatmostbytes(n)
+        self._maybe_resume_reading()
+        return ret
+
     # I think it's better to return b'' on EOF instead of raise an exception, but who knows...
     async def readexactly(self, n):
         ret = self._pipe.readbytes(n)

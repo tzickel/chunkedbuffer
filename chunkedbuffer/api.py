@@ -14,6 +14,12 @@ from collections import deque
 DEFAULT_CHUNK_SIZE = 2**14
 
 
+class PartialReadError(Exception):
+    def __init__(self, message, leftovers):
+        super(PartialReadError, self).__init__(message)
+        self.leftovers = leftovers
+
+
 class Chunk:
     __slots__ = '_size', '_buffer', '_memview', '_start', '_end'
 
@@ -108,7 +114,7 @@ class Pipe:
             if self._last:
                 sizehint = self._last.free() or -1
             if sizehint == -1:
-                # TODO maybe learn from previous reads, what's a good default instead of this.
+                # TODO (optimization) maybe learn from previous reads, what's a good default instead of this.
                 sizehint = DEFAULT_CHUNK_SIZE
         if not self._last or self._last.free() < sizehint:
             self._last = self._pool.get_chunk(sizehint)
@@ -130,12 +136,11 @@ class Pipe:
             self._on_new_data(self)
 
     # Read API
-    # TODO support negative indexes for start and end ?
+    # TODO (api) is there a good reason to support negative indexes for start and end ?
+    # TODO (speed) cache previous find results, so you don't start from the beggining each time (and invalidate it always!)
     def findbyte(self, byte, start=0, end=-1):
-        if start < 0:
-            raise NotImplementedError()
-        if end < -1:
-            raise NotImplementedError()
+        if start < 0 or end < -1:
+            raise NotImplementedError("Not supporting negative indexes")
         res_idx = 0
         found = False
         for chunk in self._chunks:
@@ -155,6 +160,25 @@ class Pipe:
                 break
         return res_idx if found else -1
 
+    # TODO optimize for finding same thing from last known position
+    def find(self, s, start=0, end=-1):
+        # TODO we can optimize for end - length of s
+        other_s = s[1:]
+        other_s_len = len(other_s)
+        last_tried_position = start
+        while True:
+            start_idx = self.findbyte(s[0], last_tried_position, end)
+            if start_idx == -1:
+                return -1
+            curr_idx = start_idx
+            for letter in other_s:
+                if self.findbyte(letter, curr_idx + 1, curr_idx + 2) == -1:
+                    break
+                curr_idx += 1
+            if other_s_len == curr_idx - start_idx:
+                return start_idx
+            last_tried_position += 1
+
     def _check_eof(self):
         if self._ended:
             if self._ended is True:
@@ -164,40 +188,30 @@ class Pipe:
         else:
             return None
 
-    # TODO don't always scan from the start
-    # TODO abstract this API to a general find ?
-    # TODO support readline of '\n' and '\r\n' (and returning them or not)
-    def readline(self, with_ending=True):
-        if self._bytes_unconsumed == 0:
-            return self._check_eof()
-        idx_r = self.findbyte(b'\r')
-        if idx_r == -1:
-            return self._check_eof()
-        while True:
-            idx_n = self.findbyte(b'\n', idx_r + 1, idx_r + 2)
-            if idx_n != -1:
-                if with_ending:
-                    return self.readatmostbytes(idx_n + 1)
-                else:
-                    ret = self.readatmostbytes(idx_n - 1)
-                    # TODO (optimize) don't materialize this
-                    self.readatmostbytes(2)
-                    return ret
-            idx_r = self.findbyte(b'\r', idx_r + 1)
-            if idx_r == -1:
-                return self._check_eof()
+    def closed(self):
+        return self._ended
 
-    # TODO add -1 for till EOF support
+    def __len__(self):
+        return self._bytes_unconsumed
+
+    # TODO (api) maybe add start, end ?
+    def peek(self, nbytes):
+        return self.readatmostbytes(nbytes, _take=False)
+
     def readbytes(self, nbytes):
         if self._bytes_unconsumed < nbytes:
-            # TODO is this the correct behaviour ?
-            return self._check_eof()
+            if self._bytes_unconsumed == 0:
+                return self._check_eof()
+            elif self._ended:
+                raise PartialReadError("Requested %d bytes but encountered EOF" % nbytes, self.readatmostbytes())
+            return None
         return self.readatmostbytes(nbytes)
 
-    # TODO error on 0 length ?
-    def readatmostbytes(self, nbytes=-1, _take=True):
+    def readatmostbytes(self, nbytes=-1, _take=True, _skip=False):
         if nbytes == -1:
             nbytes = self._bytes_unconsumed
+        elif nbytes == 0:
+            return b''
         if self._bytes_unconsumed == 0:
             return self._check_eof()
         ret_data = []
@@ -207,7 +221,7 @@ class Pipe:
             self._bytes_unconsumed -= nbytes
         for chunk in self._chunks:
             chunk_length = chunk.length()
-            # TODO if it's not yet full, we can still use it (only if it's the last chunk...)
+            # TODO (optimization) if it's not yet full, we can still use it (only if it's the last chunk...)
             if nbytes >= chunk_length:
                 ret_data.append(chunk.readable())
                 if _take:
@@ -226,47 +240,23 @@ class Pipe:
         ret = b''.join(ret_data)
         return ret
 
-    def closed(self):
-        return self._ended
-
-    def __len__(self):
-        return self._bytes_unconsumed
-
-    # TODO maybe add start, end ?
-    def peek(self, nbytes):
-        return self.readatmostbytes(nbytes, _take=False)
-
-    # TODO optimize for finding same thing from last known position
-    def find(self, s, start=0, end=-1):
-        # we can optimize for end - length of s
-        other_s = s[1:]
-        other_s_len = len(other_s)
-        last_tried_position = start
-        while True:
-            start_idx = self.findbyte(s[0], last_tried_position, end)
-            if start_idx == -1:
-                return -1
-            curr_idx = start_idx
-            for letter in other_s:
-                if self.findbyte(letter, curr_idx + 1, curr_idx + 2) == -1:
-                    break
-                curr_idx += 1
-            if other_s_len == curr_idx - start_idx:
-                return start_idx
-            last_tried_position += 1
-
-    #TODO skip_seperator
-    def readuntil(self, seperator, with_seperator=True):
-        # TODO optimize for 1 char seperator (or int)
-        idx = self.find(seperator)
-        if idx == -1:
-            return self._check_eof()
-        if with_seperator:
-            return self.readatmostbytes(idx + len(seperator))
+    # TODO (document) we don't have readline, because we have readuntil
+    def readuntil(self, seperator, skip_seperator=False):
+        if isinstance(seperator, int) or len(seperator) == 1:
+            length = 1
+            idx = self.findbyte(seperator)
         else:
+            length = len(seperator)
+            idx = self.find(seperator)
+        if idx == -1:
+            # TODO (corectness) throw exception if can't find it anymore, like readbytes
+            return self._check_eof()
+        if skip_seperator:
             ret = self.readatmostbytes(idx)
-            self.readatmostbytes(len(seperator))
+            self.readatmostbytes(length, _skip=True)
             return ret
+        else:
+            return self.readatmostbytes(idx + length)
 
 
 global_pool = Pool()

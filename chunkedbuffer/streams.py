@@ -143,11 +143,11 @@ class ChunkedBufferStream(BaseProtocol):
     async def readline(self):
         return await self.readuntil(self._newline)
 
-    async def readuntil(self, seperator, with_seperator=True):
-        ret = self._pipe.readuntil(seperator, with_seperator)
+    async def readuntil(self, seperator, skip_seperator=False):
+        ret = self._pipe.readuntil(seperator, skip_seperator)
         while ret is None:
             await self._wait_for_data()
-            ret = self._pipe.readuntil(seperator, with_seperator)
+            ret = self._pipe.readuntil(seperator, skip_seperator)
         self._maybe_resume_reading()
         return ret
 

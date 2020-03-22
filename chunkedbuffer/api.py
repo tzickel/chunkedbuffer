@@ -214,7 +214,8 @@ class Pipe:
             return b''
         if self._bytes_unconsumed == 0:
             return self._check_eof()
-        ret_data = []
+        if not _skip:
+            ret_data = []
         to_remove = 0
         nbytes = min(nbytes, self._bytes_unconsumed)
         if _take:
@@ -223,22 +224,25 @@ class Pipe:
             chunk_length = chunk.length()
             # TODO (optimization) if it's not yet full, we can still use it (only if it's the last chunk...)
             if nbytes >= chunk_length:
-                ret_data.append(chunk.readable())
+                if not _skip:
+                    ret_data.append(chunk.readable())
                 if _take:
                     to_remove += 1
                     if self._last == chunk:
                         self._last = None
                 nbytes -= chunk_length
             else:
-                ret_data.append(chunk.readable(nbytes))
+                if not _skip:
+                   ret_data.append(chunk.readable(nbytes))
                 if _take:
                     chunk.consume(nbytes)
                 break
         while to_remove:
             self._pool.return_chunk(self._chunks.popleft())
             to_remove -= 1
-        ret = b''.join(ret_data)
-        return ret
+        if not _skip:
+            ret = b''.join(ret_data)
+            return ret
 
     # TODO (document) we don't have readline, because we have readuntil
     def readuntil(self, seperator, skip_seperator=False):
@@ -249,8 +253,12 @@ class Pipe:
             length = len(seperator)
             idx = self.find(seperator)
         if idx == -1:
-            # TODO (corectness) throw exception if can't find it anymore, like readbytes
-            return self._check_eof()
+            # TODO We should refactor this, since readbytes has the same code...
+            if self._bytes_unconsumed == 0:
+                return self._check_eof()
+            elif self._ended:
+                raise PartialReadError("Requested to readuntil %s but encountered EOF" % seperator, self.readatmostbytes())
+            return None
         if skip_seperator:
             ret = self.readatmostbytes(idx)
             self.readatmostbytes(length, _skip=True)

@@ -266,21 +266,3 @@ class Pipe:
 
 
 global_pool = Pool()
-
-
-if __name__ == "__main__":
-    pipe = Pipe()
-    buff = pipe.get_buffer()
-    buff[:5] = b'testi'
-    pipe.buffer_written(5)
-    assert pipe.readbytes(100) == None
-    assert pipe.readbytes(4) == b'test'
-    buff = pipe.get_buffer()
-    buff[:5] = b'ng\r\nt'
-    pipe.buffer_written(5)
-    assert pipe.readline() == b'ing\r\n'
-    buff = pipe.get_buffer(8)
-    buff[:8] = b'esting\r\n'
-    pipe.buffer_written(8)
-    assert pipe.peek(7) == b'testing'
-    assert pipe.readline(with_ending=False) == b'testing'

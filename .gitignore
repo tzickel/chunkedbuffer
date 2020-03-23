@@ -9,3 +9,5 @@ build/
 *.o
 *.so
 *.c
+.coverage
+.tox

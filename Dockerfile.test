@@ -1,0 +1,11 @@
+FROM quay.io/pypa/manylinux2014_x86_64
+
+RUN ln -s /opt/python/cp38-cp38/bin/python3.8 /usr/local/bin && ln -s /opt/python/cp37-cp37m/bin/python3.7 /usr/local/bin && ln -s /opt/python/cp36-cp36m/bin/python3.6 /usr/local/bin
+
+RUN python3.8 -m pip install tox
+
+WORKDIR /opt/chunkedbuffer
+
+ADD . .
+
+RUN python3.8 -m tox

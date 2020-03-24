@@ -1,10 +1,11 @@
-from .api import Pool, Pipe
+from .api import Pool, Pipe, PartialReadError
 
-__all__ = ['Pool', 'Pipe']
+__all__ = ['Pool', 'Pipe', 'PartialReadError']
 
 try:
     from .streams import ChunkedBufferStream
-except ImportError:
     __all__.append('ChunkedBufferStream')
+except ImportError:
+    pass
 
 __version__ = '0.0.1a1'

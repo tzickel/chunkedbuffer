@@ -1,25 +1,92 @@
-from chunkedbuffer import Pipe
+import pytest
+
+from chunkedbuffer import Pipe, PartialReadError
 
 
-def pump(pipe, data):
+# Helper methods for testing
+def write(pipe, data):
     buff = pipe.get_buffer()
-    buff[:5] = b'testi'
-    pipe.buffer_written(5)
+    buff_len = len(buff)
+    write_len = min(buff_len, len(data))
+    buff[:write_len] = data[:write_len]
+    pipe.buffer_written(write_len)
+    return write_len
 
 
-def test_basic():
+def write_all(pipe, data):
+    while data:
+        ret = write(pipe, data)
+        data = data[ret:]
+
+
+def test_pipe_closed():
     pipe = Pipe()
-    buff = pipe.get_buffer()
-    buff[:5] = b'testi'
-    pipe.buffer_written(5)
-    assert pipe.readbytes(100) == None
+    assert pipe.closed() == False
+    pipe.eof()
+    assert pipe.closed() == True
+
+    pipe = Pipe()
+    exp = Exception('testing')
+    pipe.eof(exp)
+    assert pipe.closed() == exp
+
+
+def test_pipe_len():
+    pipe = Pipe()
+    write_all(pipe, b'testing')
+    assert len(pipe) == 7
     assert pipe.readbytes(4) == b'test'
-    buff = pipe.get_buffer()
-    buff[:5] = b'ng\r\nt'
-    pipe.buffer_written(5)
+    assert len(pipe) == 3
+    assert pipe.readbytes(3) == b'ing'
+    assert len(pipe) == 0
+
+
+def test_pipe_peek():
+    pipe = Pipe()
+    assert pipe.peek(0) == b''
+    assert pipe.peek(10) == None
+    write_all(pipe, b'blah')
+    assert pipe.peek(0) == b''
+    assert pipe.peek(10) == b'blah'
+    assert pipe.peek(3) == b'bla'
+    assert pipe.peek(4) == b'blah'
+
+
+def test_pipe_readbytes_eof_normal():
+    pipe = Pipe()
+    write_all(pipe, b'testing')
+    pipe.eof()
+    assert pipe.readbytes(4) == b'test'
+    assert pipe.readbytes(1) == b'i'
+    with pytest.raises(PartialReadError) as e:
+        pipe.readbytes(4)
+    assert str(e.value) == 'Requested 4 bytes but encountered EOF'
+    assert e.value.leftovers == b'ng'
+    assert pipe.readbytes(4) == b''
+
+
+def test_pipe_readbytes_eof_exception():
+    pipe = Pipe()
+    write_all(pipe, b'testing')
+    pipe.eof(Exception('test'))
+    assert pipe.readbytes(4) == b'test'
+    assert pipe.readbytes(1) == b'i'
+    with pytest.raises(PartialReadError) as e:
+        pipe.readbytes(4)
+    assert str(e.value) == 'Requested 4 bytes but encountered EOF'
+    assert e.value.leftovers == b'ng'
+    with pytest.raises(Exception) as e:
+        pipe.readbytes(4)
+    assert str(e.value) == 'test'
+
+
+def test_pipe_readuntil():
+    pipe = Pipe()
+    write_all(pipe, b'test\r\ning\r\n')
+    assert pipe.readuntil(b'\r\n', skip_seperator=True) == b'test'
+    assert pipe.readuntil(b'notfound') == None
     assert pipe.readuntil(b'\r\n') == b'ing\r\n'
-    buff = pipe.get_buffer(8)
-    buff[:8] = b'esting\r\n'
-    pipe.buffer_written(8)
-    assert pipe.peek(7) == b'testing'
-    assert pipe.readuntil(b'\r\n', skip_seperator=True) == b'testing'
+    assert pipe.readuntil(b'\r\n') == None
+    write_all(pipe, b'blah')
+    assert pipe.readuntil(b'a') == b'bla'
+    assert len(pipe) == 1

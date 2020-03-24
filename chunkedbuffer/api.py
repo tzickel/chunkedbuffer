@@ -195,6 +195,7 @@ class Pipe:
         return self._bytes_unconsumed
 
     # TODO (api) maybe add start, end ?
+    # TODO (api) should this enforce nbytes, or up to nbytes ?
     def peek(self, nbytes):
         return self.readatmostbytes(nbytes, _take=False)
 

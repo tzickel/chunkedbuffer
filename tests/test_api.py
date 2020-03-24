@@ -19,6 +19,13 @@ def write_all(pipe, data):
         data = data[ret:]
 
 
+def write_exact(pipe, data):
+    l = len(data)
+    buff = pipe.get_buffer(l)
+    buff[:l] = data
+    pipe.buffer_written(l)
+
+
 def test_pipe_closed():
     pipe = Pipe()
     assert pipe.closed() == False
@@ -61,7 +68,7 @@ def test_pipe_readbytes_eof_normal():
     with pytest.raises(PartialReadError) as e:
         pipe.readbytes(4)
     assert str(e.value) == 'Requested 4 bytes but encountered EOF'
-    assert e.value.leftovers == b'ng'
+    assert e.value.leftover == b'ng'
     assert pipe.readbytes(4) == b''
 
 
@@ -74,7 +81,7 @@ def test_pipe_readbytes_eof_exception():
     with pytest.raises(PartialReadError) as e:
         pipe.readbytes(4)
     assert str(e.value) == 'Requested 4 bytes but encountered EOF'
-    assert e.value.leftovers == b'ng'
+    assert e.value.leftover == b'ng'
     with pytest.raises(Exception) as e:
         pipe.readbytes(4)
     assert str(e.value) == 'test'
@@ -90,3 +97,22 @@ def test_pipe_readuntil():
     write_all(pipe, b'blah')
     assert pipe.readuntil(b'a') == b'bla'
     assert len(pipe) == 1
+    assert pipe.readuntil(ord(b'h')) == b'h'
+    assert len(pipe) == 0
+
+
+def test_pipe_findbyte():
+    pipe = Pipe()
+    write_exact(pipe, b'test')
+    with pytest.raises(NotImplementedError):
+        pipe.findbyte(b'b', -1)
+    write_exact(pipe, b'ing')
+    assert pipe.findbyte(b'n', 4) == 5
+    import pdb; pdb.set_trace()
+    assert pipe.findbyte(b'n', 0, 4) == -1
+    assert pipe.findbyte(b'n', 0, 5) == 5
+
+
+def test_pipe_get_buffer():
+    pipe = Pipe()
+    write_exact(pipe, b'testing')

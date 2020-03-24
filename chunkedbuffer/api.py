@@ -2,8 +2,6 @@ from collections import deque
 
 
 # TODO optional extra optimization, return something like a memoryview over multiple chunks instead of materializing them as an bytearray
-# TODO add async module API with backpresure blocking
-# TODO handle EOF/error
 # TODO consistent _ and space naming
 # TODO close api for all
 # TODO on exception close everything?
@@ -15,9 +13,9 @@ DEFAULT_CHUNK_SIZE = 2**14
 
 
 class PartialReadError(Exception):
-    def __init__(self, message, leftovers):
+    def __init__(self, message, leftover):
         super(PartialReadError, self).__init__(message)
-        self.leftovers = leftovers
+        self.leftover = leftover
 
 
 class Chunk:
@@ -67,11 +65,12 @@ class Chunk:
             raise Exception('Can only find one byte')
         if start < 0:
             raise NotImplementedError()
-        if end is None or end == -1:
+        if end is None:
             end = self._end
-        if end < -1:
+        elif end < 0:
             raise NotImplementedError()
-        end = min(self._start + end, self._end)
+        else:
+            end = min(self._start + end, self._end)
         ret = self._buffer.find(byte, self._start + start, end)
         return ret if ret == -1 else (ret - self._start)
 
@@ -98,10 +97,9 @@ class Pool:
 
 
 class Pipe:
-    __slots__ = '_on_new_data', '_pool', '_chunks', '_last', '_bytes_unconsumed', '_ended'
+    __slots__ =  '_pool', '_chunks', '_last', '_bytes_unconsumed', '_ended'
 
-    def __init__(self, on_new_data=None, pool=None):
-        self._on_new_data = on_new_data
+    def __init__(self, pool=None):
         self._pool = pool or global_pool
         self._chunks = deque()
         self._last = None
@@ -124,16 +122,12 @@ class Pipe:
     def buffer_written(self, nbytes):
         self._last.written(nbytes)
         self._bytes_unconsumed += nbytes
-        if self._on_new_data:
-            self._on_new_data(self)
     
     def eof(self, exception=None):
         if exception is None:
             exception = True
         self._last = None
         self._ended = exception
-        if self._on_new_data:
-            self._on_new_data(self)
 
     # Read API
     # TODO (api) is there a good reason to support negative indexes for start and end ?
@@ -145,7 +139,7 @@ class Pipe:
         found = False
         for chunk in self._chunks:
             chunk_length = chunk.length()
-            if start > chunk_length:
+            if start > chunk_length - 1:
                 res_idx += chunk_length
                 start -= chunk_length
                 if end != -1:

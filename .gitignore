@@ -11,3 +11,5 @@ build/
 *.c
 .coverage
 .tox
+htmlcov/
+misc/

@@ -62,7 +62,7 @@ class Chunk:
     def findbyte(self, byte, start=0, end=None):
         # TODO move this check to the parent
         if not isinstance(byte, int) and len(byte) > 1:
-            raise Exception('Can only find one byte')
+            raise ValueError('Can only find one byte')
         if start < 0:
             raise ValueError("Not supporting negative indexes")
         if end is None:
@@ -136,7 +136,7 @@ class Pipe:
             raise ValueError("Not supporting negative indexes")
         if end is None:
             end = self._bytes_unconsumed
-        elif end < -1:
+        elif end < 0:
             raise ValueError("Not supporting negative indexes")
         res_idx = 0
         for chunk in self._chunks:

@@ -1,6 +1,26 @@
 import pytest
 
 from chunkedbuffer import Pipe, PartialReadError
+from chunkedbuffer.api import Chunk
+
+
+def test_chunk():
+    chunk = Chunk(1024)
+    chunk.writable()[:4] = b'test'
+    chunk.written(4)
+    assert chunk.readable().tobytes() == b'test'
+    assert chunk.readable(2).tobytes() == b'te'
+    assert chunk.readable(0).tobytes() == b''
+    with pytest.raises(ValueError):
+        chunk.readable(-2).tobytes()
+    with pytest.raises(ValueError):
+        chunk.findbyte(b'testing')
+    with pytest.raises(ValueError):
+        chunk.findbyte(b't', -1)
+    with pytest.raises(ValueError):
+        chunk.findbyte(b't', 0, -1)
+    assert chunk.findbyte(b't') == 0
+    assert chunk.findbyte(b't', 2) == 3
 
 
 # Helper methods for testing
@@ -101,11 +121,14 @@ def test_pipe_readuntil():
     assert len(pipe) == 0
 
 
+# TODO add test for end in mid chunk in multiple chunks
 def test_pipe_findbyte():
     pipe = Pipe()
     write_exact(pipe, b'test')
     with pytest.raises(ValueError):
         pipe.findbyte(b'b', -1)
+    with pytest.raises(ValueError):
+        pipe.findbyte(b'b', 0, -1)
     write_exact(pipe, b'ing')
     assert pipe.findbyte(b'n', 4) == 5
     assert pipe.findbyte(b'n', 0, 4) == -1
@@ -116,3 +139,4 @@ def test_pipe_findbyte():
 def test_pipe_get_buffer():
     pipe = Pipe()
     write_exact(pipe, b'testing')
+    write(pipe, b'1')

@@ -104,13 +104,13 @@ def test_pipe_readuntil():
 def test_pipe_findbyte():
     pipe = Pipe()
     write_exact(pipe, b'test')
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         pipe.findbyte(b'b', -1)
     write_exact(pipe, b'ing')
     assert pipe.findbyte(b'n', 4) == 5
-    import pdb; pdb.set_trace()
     assert pipe.findbyte(b'n', 0, 4) == -1
-    assert pipe.findbyte(b'n', 0, 5) == 5
+    assert pipe.findbyte(b'n', 0, 5) == -1
+    assert pipe.findbyte(b'n', 0, 6) == 5
 
 
 def test_pipe_get_buffer():

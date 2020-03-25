@@ -3,7 +3,7 @@ from .api import Pool, Pipe, PartialReadError
 __all__ = ['Pool', 'Pipe', 'PartialReadError']
 
 try:
-    from .streams import ChunkedBufferStream
+    from .asynciostreams import ChunkedBufferStream
     __all__.append('ChunkedBufferStream')
 except ImportError:
     pass

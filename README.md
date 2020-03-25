@@ -33,9 +33,9 @@ from chunkedbuffer import Pipe
 
 if __name__ == "__main__":
     pipe = Pipe()
-    # We can use here -1, if our writing implmentation can handle arbitrary sizes (like socket.recv_into can)
+    # We can use here the default value -1, if our writing implmentation can handle arbitrary sizes (like socket.recv_into can)
     buffer = pipe.get_buffer(4)
-    # Because buffer might be bigger than 4, and this is an example code, we need to write it like this
+    # Because the returned buffer might be bigger than 4, and this is an example code, we need to write it like this
     buffer[:4] = b'test'
     pipe.buffer_written(4)
     # The functions return None when there is not enough data to return

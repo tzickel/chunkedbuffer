@@ -52,7 +52,7 @@ class Chunk:
             end = self._end
         else:
             if howmuch < 0:
-                raise NotImplementedError()
+                raise ValueError("Not supporting negative indexes")
             end = min(self._start + howmuch, self._end)
         return self._memview[self._start:end]
 
@@ -64,11 +64,11 @@ class Chunk:
         if not isinstance(byte, int) and len(byte) > 1:
             raise Exception('Can only find one byte')
         if start < 0:
-            raise NotImplementedError()
+            raise ValueError("Not supporting negative indexes")
         if end is None:
             end = self._end
         elif end < 0:
-            raise NotImplementedError()
+            raise ValueError("Not supporting negative indexes")
         else:
             end = min(self._start + end, self._end)
         ret = self._buffer.find(byte, self._start + start, end)
@@ -130,37 +130,40 @@ class Pipe:
         self._ended = exception
 
     # Read API
-    # TODO (api) is there a good reason to support negative indexes for start and end ?
     # TODO (speed) cache previous find results, so you don't start from the beggining each time (and invalidate it always!)
-    def findbyte(self, byte, start=0, end=-1):
-        if start < 0 or end < -1:
-            raise NotImplementedError("Not supporting negative indexes")
+    def findbyte(self, byte, start=0, end=None):
+        if start < 0:
+            raise ValueError("Not supporting negative indexes")
+        if end is None:
+            end = self._bytes_unconsumed
+        elif end < -1:
+            raise ValueError("Not supporting negative indexes")
         res_idx = 0
-        found = False
         for chunk in self._chunks:
             chunk_length = chunk.length()
-            if start > chunk_length - 1:
+            if start >= chunk_length:
                 res_idx += chunk_length
                 start -= chunk_length
-                if end != -1:
-                    end -= chunk_length
+                end -= chunk_length
                 continue
             idx = chunk.findbyte(byte, start, end)
             if idx == -1:
                 res_idx += chunk_length
+                start = 0
+                end -= chunk_length
             else:
-                found = True
                 res_idx += idx
-                break
-        return res_idx if found else -1
+                return res_idx
+        return -1
 
     # TODO optimize for finding same thing from last known position
-    def find(self, s, start=0, end=-1):
+    def find(self, s, start=0, end=None):
         # TODO we can optimize for end - length of s
         other_s = s[1:]
         other_s_len = len(other_s)
         last_tried_position = start
         while True:
+            # TODO (correctness) if end is limited, don't scan past it (in the code after this)
             start_idx = self.findbyte(s[0], last_tried_position, end)
             if start_idx == -1:
                 return -1

@@ -4,6 +4,9 @@ from chunkedbuffer import Pipe, PartialReadError
 from chunkedbuffer.chunk import Chunk
 
 
+# TODO all tests should have both on regular minimum_size and on very short one
+
+
 def test_chunk():
     chunk = Chunk(1024)
     assert chunk.size() == 1024
@@ -58,6 +61,15 @@ def write_exact(pipe, data):
     pipe.buffer_written(l)
 
 
+def flatten_zero_copy(result):
+    if result is None:
+        return None
+    items = list(result)
+    if items == [None]:
+        return None
+    return b''.join([x.tobytes() for x in items])
+
+
 def test_pipe_closed():
     pipe = Pipe()
     assert pipe.closed() == False
@@ -68,6 +80,19 @@ def test_pipe_closed():
     exp = Exception('testing')
     pipe.eof(exp)
     assert pipe.closed() == exp
+
+
+def test_pipe_reached_eof():
+    pipe = Pipe()
+    assert pipe.reached_eof() == False
+    write_all(pipe, b'testing')
+    assert pipe.reached_eof() == False
+    pipe.eof()
+    assert pipe.reached_eof() == False
+    assert pipe.readexact(7) == b'testing'
+    assert pipe.reached_eof() == True
+    assert pipe.read(1) == b''
+    assert pipe.reached_eof() == True
 
 
 def test_pipe_len():
@@ -166,3 +191,31 @@ def test_pipe_skip():
 def test_pipe_buffer_resize():
     pipe = Pipe()
 
+
+def test_pipe_take_multiple():
+    pipe = Pipe(minimum_size=1)
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert pipe.readexact(7) == b'testing'
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert pipe.readexact(6) == b'testin'
+    assert pipe.readexact(1) == b'g'
+
+
+def test_pipe_readuntil_zerocopy():
+    pipe = Pipe()
+    write_all(pipe, b'test\r\ning\r\n')
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n', skip_seperator=True)) == b'test'
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'notfound')) == None
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == b'ing\r\n'
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == None
+    write_all(pipe, b'blah')
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'a')) == b'bla'
+    assert len(pipe) == 1
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(ord(b'h'))) == b'h'
+    assert len(pipe) == 0

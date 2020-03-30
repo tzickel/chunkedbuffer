@@ -154,6 +154,15 @@ class Pipe:
             raise PartialReadError(msg, self.read())
         return None
 
+    def _fullfill_or_error_yield(self, msg):
+        if self._bytes_unconsumed == 0:
+            yield self._check_eof()
+            return
+        elif self._ended:
+            raise PartialReadError(msg, self.read())
+        yield None
+
+
     def _take(self, nbytes=-1, peek=False):
         if nbytes == 0:
             return b''
@@ -370,10 +379,13 @@ class Pipe:
             length = len(seperator)
             idx = self.find(seperator)
         if idx == -1:
-            return self._fullfill_or_error("Requested to readuntil %s but encountered EOF" % seperator)
+            for item in self._fullfill_or_error_yield("Requested to readuntil %s but encountered EOF" % seperator):
+                yield item
+            return
         if skip_seperator:
-            for chunk in self._take_zero_copy(idx):
-                yield chunk
+            for item in self._take_zero_copy(idx):
+                yield item
             self._skip(length)
         else:
-            return self._take(idx + length)
+            for item in self._take_zero_copy(idx + length):
+                yield item

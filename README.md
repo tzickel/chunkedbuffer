@@ -8,7 +8,7 @@ The Pipe class defines write API for providing buffers to be written to with dat
 
 The Pipe class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
 
-The read API has both one (convert to bytes) or zero (return the original buffer data via a memoryview with _zerocopy commands).
+The read API has both one copy (convert to bytes) or zero copy (return the original buffer data via a memoryview with _zerocopy commands).
 
 The data is held inside the Pipe by a series of non contiguous list of buffers which are called Chunks.
 
@@ -86,8 +86,6 @@ Pipe(pool=None)
     read_zerocopy(nbytes=-1)
     readexact_zerocopy(nbytes)
     readuntil_zerocopy(seperator, skip_seperator=False)
-    peek_zerocopy(nbytes=-1)
-    peakexact_zerocopy(nbytes)
 
 
 # An exception that is thrown when the stream has reached EOF but the ammount of data requested is bigger than present in the buffer

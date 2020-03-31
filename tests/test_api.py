@@ -116,6 +116,17 @@ def test_pipe_peek():
     assert pipe.peek(4) == b'blah'
 
 
+def test_pipe_peekexact():
+    pipe = Pipe()
+    assert pipe.peekexact(0) == b''
+    assert pipe.peekexact(10) == None
+    write_all(pipe, b'blah')
+    assert pipe.peekexact(0) == b''
+    assert pipe.peekexact(10) == None
+    assert pipe.peekexact(3) == b'bla'
+    assert pipe.peekexact(4) == b'blah'
+
+
 def test_pipe_readexact_eof_normal():
     pipe = Pipe()
     write_all(pipe, b'testing')
@@ -144,6 +155,21 @@ def test_pipe_readexact_eof_exception():
     assert str(e.value) == 'test'
 
 
+def test_pipe_readexact_zerocopy_eof_exception():
+    pipe = Pipe()
+    write_all(pipe, b'testing')
+    pipe.eof(Exception('test'))
+    assert flatten_zero_copy(pipe.readexact_zerocopy(4)) == b'test'
+    assert flatten_zero_copy(pipe.readexact_zerocopy(1)) == b'i'
+    with pytest.raises(PartialReadError) as e:
+        flatten_zero_copy(pipe.readexact_zerocopy(4))
+    assert str(e.value) == 'Requested 4 bytes but encountered EOF'
+    assert e.value.leftover == b'ng'
+    with pytest.raises(Exception) as e:
+        flatten_zero_copy(pipe.readexact_zerocopy(4))
+    assert str(e.value) == 'test'
+
+
 def test_pipe_readuntil():
     pipe = Pipe()
     write_all(pipe, b'test\r\ning\r\n')
@@ -156,6 +182,21 @@ def test_pipe_readuntil():
     assert len(pipe) == 1
     assert pipe.readuntil(ord(b'h')) == b'h'
     assert len(pipe) == 0
+
+
+def test_pipe_readuntil_zerocopy():
+    pipe = Pipe()
+    write_all(pipe, b'test\r\ning\r\n')
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n', skip_seperator=True)) == b'test'
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'notfound')) == None
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == b'ing\r\n'
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == None
+    write_all(pipe, b'blah')
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'a')) == b'bla'
+    assert len(pipe) == 1
+    assert flatten_zero_copy(pipe.readuntil_zerocopy(ord(b'h'))) == b'h'
+    assert len(pipe) == 0
+
 
 # TODO add test for end in mid chunk in multiple chunks
 def test_pipe_findbyte():
@@ -184,12 +225,52 @@ def test_pipe_skip():
     pipe = Pipe()
     write_exact(pipe, b'blah')
     assert len(pipe) == 4
+    assert pipe.skip(0) == 0
     assert pipe.skip(2) == 2
     assert len(pipe) == 2
     assert pipe.readexact(2) == b'ah'
+    write_exact(pipe, b'blah')
+    assert len(pipe) == 4
+    assert pipe.skip(5) == 4
+    assert len(pipe) == 0
+    # TODO hmm... should we return here b'' or PartialReadError?
+    assert pipe.read(2) == None
+    write_exact(pipe, b'blah')
+    assert len(pipe) == 4
+    assert pipe.skip() == 4
+    assert len(pipe) == 0
+    assert pipe.skip() == 0
+    assert len(pipe) == 0
+    pipe.eof()
+    assert pipe.skip() == 0
+
+
+def test_pipe_skipexact():
+    pipe = Pipe()
+    write_exact(pipe, b'blah')
+    assert len(pipe) == 4
+    assert pipe.skipexact(2) == 2
+    assert len(pipe) == 2
+    assert pipe.skipexact(4) == None
+    assert pipe.readexact(2) == b'ah'
+    assert pipe.skipexact(4) == None
+    pipe.eof()
+    # TODO hmm... should we return here b'' or PartialReadError?
+    assert pipe.skipexact(4) == b''
+
 
 def test_pipe_buffer_resize():
     pipe = Pipe()
+    original_size = pipe._current_size
+    for _ in range(2048):
+        write_all(pipe, b'a' * 5)
+    assert original_size == pipe._current_size
+    for _ in range(2048):
+        write_all(pipe, b'a' * 5000)
+    assert original_size != pipe._current_size
+    for _ in range(2048):
+        write_all(pipe, b'a' * 5)
+    assert original_size == pipe._current_size
 
 
 def test_pipe_take_multiple():
@@ -207,15 +288,47 @@ def test_pipe_take_multiple():
     assert pipe.readexact(1) == b'g'
 
 
-def test_pipe_readuntil_zerocopy():
-    pipe = Pipe()
-    write_all(pipe, b'test\r\ning\r\n')
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n', skip_seperator=True)) == b'test'
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'notfound')) == None
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == b'ing\r\n'
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'\r\n')) == None
-    write_all(pipe, b'blah')
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(b'a')) == b'bla'
-    assert len(pipe) == 1
-    assert flatten_zero_copy(pipe.readuntil_zerocopy(ord(b'h'))) == b'h'
+def test_pipe_take_zero_copy_multiple():
+    pipe = Pipe(minimum_size=1)
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert flatten_zero_copy(pipe.readexact_zerocopy(7)) == b'testing'
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert flatten_zero_copy(pipe.readexact_zerocopy(6)) == b'testin'
+    assert flatten_zero_copy(pipe.readexact_zerocopy(1)) == b'g'
+    assert flatten_zero_copy(pipe.readexact_zerocopy(0)) == b''
+
+
+def test_pipe_skip_multiple():
+    pipe = Pipe(minimum_size=1)
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert pipe.readexact(3) == b'tes'
+    assert pipe.skip(2) == 2
+    assert pipe.readexact(2) == b'ng'
+
+    pipe = Pipe(minimum_size=1)
+    pipe.get_buffer(4)[:4] = b'test'
+    pipe.buffer_written(4)
+    pipe.get_buffer(3)[:3] = b'ing'
+    pipe.buffer_written(3)
+    assert pipe.readexact(3) == b'tes'
+    assert pipe.skip(4) == 4
     assert len(pipe) == 0
+
+
+def test_pipe_readzerocopy():
+    pipe = Pipe()
+    assert flatten_zero_copy(pipe.read_zerocopy()) == None
+    assert flatten_zero_copy(pipe.read_zerocopy(2)) == None
+    write_all(pipe, b'testing\r\n')
+    assert flatten_zero_copy(pipe.read_zerocopy(2)) == b'te'
+    assert flatten_zero_copy(pipe.read_zerocopy()) == b'sting\r\n'
+    assert flatten_zero_copy(pipe.read_zerocopy()) == None

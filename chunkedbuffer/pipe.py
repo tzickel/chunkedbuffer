@@ -9,6 +9,7 @@ from .pool import global_pool
 # TODO text encoding per read ?
 # TODO should some of the commands (such as peek) have optional start, end ?
 # TODO set a maximum chunk size for buffer ?
+# TODO remove exact API ?
 
 # TODO is this a good default size ?
 _DEFAULT_CHUNK_SIZE = 2048
@@ -220,9 +221,11 @@ class Pipe:
     # TODO handle if exception happened, still cleanup to pool
     def _take_zero_copy(self, nbytes=-1, peek=False):
         if nbytes == 0:
-            return b''
+            yield memoryview(b'') # TODO something better
+            return
         if self._bytes_unconsumed == 0:
-            return self._check_eof()
+            yield self._check_eof()
+            return
         if nbytes < 0:
             nbytes = self._bytes_unconsumed
         else:
@@ -272,7 +275,7 @@ class Pipe:
             if not self._chunks:
                 self._last = None
 
-    def _skip(self, nbytes):
+    def _skip(self, nbytes=-1):
         if nbytes == 0:
             return 0
         if self._bytes_unconsumed == 0:
@@ -298,12 +301,15 @@ class Pipe:
             return nbytes
 
         to_remove = 0
+        skipped = 0
         for chunk in self._chunks:
             chunk_length = chunk.length()
             if nbytes >= chunk_length:
                 to_remove += 1
                 nbytes -= chunk_length
+                skipped += chunk_length
             else:
+                skipped += nbytes
                 chunk.consume(nbytes)
                 break
 
@@ -313,23 +319,25 @@ class Pipe:
         if not self._chunks:
             self._last = None
 
-        return nbytes
+        return skipped
 
     def peek(self, nbytes=-1):
         return self._take(nbytes, True)
 
-    def peek_zerocopy(self, nbytes=-1):
-        return self._take_zero_copy(nbytes, True)
+    # TODO (api) hmm... do we need a zerocopy peek ?
+    #def peek_zerocopy(self, nbytes=-1):
+        #return self._take_zero_copy(nbytes, True)
 
     def peekexact(self, nbytes):
         if self._bytes_unconsumed < nbytes:
             return self._fullfill_or_error("Requested %d bytes but encountered EOF" % nbytes)
         return self._take(nbytes, True)
 
-    def peekexact_zerocopy(self, nbytes):
-        if self._bytes_unconsumed < nbytes:
-            return self._fullfill_or_error("Requested %d bytes but encountered EOF" % nbytes)
-        return self._take_zero_copy(nbytes, True)
+    # TODO (api) hmm... do we need a zerocopy peekexact ?
+    #def peekexact_zerocopy(self, nbytes):
+        #if self._bytes_unconsumed < nbytes:
+            #return self._fullfill_or_error("Requested %d bytes but encountered EOF" % nbytes)
+        #return self._take_zero_copy(nbytes, True)
 
     def skip(self, nbytes=-1):
         return self._skip(nbytes)
@@ -352,7 +360,7 @@ class Pipe:
 
     def readexact_zerocopy(self, nbytes):
         if self._bytes_unconsumed < nbytes:
-            return self._fullfill_or_error("Requested %d bytes but encountered EOF" % nbytes)
+            return self._fullfill_or_error_yield("Requested %d bytes but encountered EOF" % nbytes)
         return self._take_zero_copy(nbytes)
 
     def readuntil(self, seperator, skip_seperator=False):

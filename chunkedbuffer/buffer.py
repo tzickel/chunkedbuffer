@@ -221,9 +221,13 @@ class WritableBuffer(Buffer):
         super(WritableBuffer, self).__init__()
 
     def get_buffer(self, sizehint=-1):
-        chunk = self._pool.get_chunk(2048)
-        self._add_chunk(chunk)
-        return chunk.writable()
+        if sizehint == -1:
+            sizehint = self._current_size
+        if not self._last or self._last.free() == 0:
+            chunk = self._pool.get_chunk(2048)
+            self._add_chunk(chunk)
+            return chunk.writable()
+        return self._last.writable()
 
     def buffer_written(self, nbytes):
         self._last.written(nbytes)

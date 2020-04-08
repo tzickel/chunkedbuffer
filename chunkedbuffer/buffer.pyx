@@ -1,6 +1,6 @@
 from collections import deque
-
-from .pool import global_pool
+from .chunk cimport Chunk
+from .pool cimport global_pool
 
 # TODO consistent _ and space naming
 # TODO close api for all
@@ -18,7 +18,11 @@ from .pool import global_pool
 _DEFAULT_CHUNK_SIZE = 2048
 
 
-class Buffer:
+cdef class Buffer:
+    cdef object _pool
+    cdef object _chunks
+    cdef Chunk _last
+
     def __init__(self, pool=None):
         self._pool = pool or global_pool
         self._chunks = deque()
@@ -107,9 +111,7 @@ class Buffer:
 
     # If you ask for more, you'll get what we have, it's your responsbility to check length before
     def peek(self, nbytes=-1):
-        if nbytes == 0 or len(self) == 0:
-            return EmptyBuffer()
-        elif nbytes < 0:
+        if nbytes < 0:
             nbytes = len(self)
         else:
             nbytes = min(nbytes, len(self))
@@ -131,9 +133,7 @@ class Buffer:
         return ret
 
     def take(self, nbytes=-1):
-        if nbytes == 0 or len(self) == 0:
-            return EmptyBuffer()
-        elif nbytes < 0:
+        if nbytes < 0:
             nbytes = len(self)
         else:
             nbytes = min(nbytes, len(self))

@@ -19,7 +19,8 @@ _DEFAULT_CHUNK_SIZE = 2048
 
 
 class Buffer:
-    def __init__(self):
+    def __init__(self, pool=None):
+        self._pool = pool or global_pool
         self._chunks = deque()
         self._last = None
 
@@ -213,16 +214,10 @@ class Buffer:
 
         return ret
 
-
-class WritableBuffer(Buffer):
-    def __init__(self, minimum_size=_DEFAULT_CHUNK_SIZE, pool=None):
-        self._pool = pool or global_pool
-        self._current_size = self._minimum_size = _DEFAULT_CHUNK_SIZE
-        super(WritableBuffer, self).__init__()
-
+    # Write API
     def get_buffer(self, sizehint=-1):
-        if sizehint == -1:
-            sizehint = self._current_size
+        #if sizehint == -1:
+            #sizehint = self._current_size
         if not self._last or self._last.free() == 0:
             chunk = self._pool.get_chunk(2048)
             self._add_chunk(chunk)
@@ -231,29 +226,3 @@ class WritableBuffer(Buffer):
 
     def buffer_written(self, nbytes):
         self._last.written(nbytes)
-
-
-class EmptyBuffer(Buffer):
-    def close(self):
-        pass
-
-    def __bytes__(self):
-        return b''
-
-    def findbyte(self, byte, start=0, end=None):
-        return -1
-
-    def find(self, s, start=0, end=None):
-        return -1
-
-    def __len__(self):
-        return 0
-
-    def take(self, nbytes=-1):
-        return EmptyBuffer()
-
-    def peek(self, nbytes=-1):
-        return EmptyBuffer()
-
-    def skip(self, nbytes=-1):
-        return 0

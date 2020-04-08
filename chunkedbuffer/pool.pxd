@@ -6,3 +6,6 @@ cdef class SameSizePool:
     cdef object _queue
 
     cdef return_memory(self, Memory memory)
+
+
+cdef SameSizePool global_pool

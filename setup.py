@@ -1,14 +1,4 @@
 from setuptools import setup
-from distutils.core import Extension
+from Cython.Build import cythonize
 
-setup()
-"""
-setup(ext_modules=[
-    Extension(
-        "chunkedbuffer.chunk",
-        sources=[
-            "chunkedbuffer/cchunk.c"
-        ],
-    )
-])
-"""
+setup(ext_modules=cythonize("chunkedbuffer/*.pyx", compiler_directives={'language_level' : "3"}))

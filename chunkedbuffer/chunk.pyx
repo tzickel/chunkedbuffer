@@ -19,21 +19,20 @@ cdef class Memory:
     def __cinit__(self, size_t size, SameSizePool pool):
         self.size = size
         self._buffer = <char *>malloc(size)
-        self._reference = 0
-
-    def __init__(self, size_t size, SameSizePool pool):
-        if not self._buffer:
+        if self._buffer is NULL:
             raise MemoryError()
         self._pool = pool
+        self._reference = 0
 
     def __dealloc__(self):
-        if self._buffer:
+        if self._buffer is not NULL:
             free(self._buffer)
+            self._buffer = NULL
 
-    cdef increase(self):
+    cdef void increase(self):
         self._reference += 1
 
-    cdef decrease(self):
+    cdef void decrease(self):
         self._reference -= 1
         if self._reference == 0:
             self._pool.return_memory(self)
@@ -53,31 +52,31 @@ cdef class Chunk:
     def __dealloc__(self):
         self.close()
 
-    def close(self):
-        if self._memory:
+    cdef void close(self):
+        if self._memory is not None:
             self._memory.decrease()
             self._memory = None
 
-    def writable(self):
+    cdef object writable(self):
         if not self._writable:
             raise RuntimeError('This chunk is a view into another chunk and is readonly')
         return PyMemoryView_FromMemory(self._memory._buffer + self._end, self._memory.size - self._end, buffer.PyBUF_WRITE)
 
-    def written(self, size_t nbytes):
+    cdef void written(self, size_t nbytes):
         if not self._writable:
             raise RuntimeError('This chunk is a view into another chunk and is readonly')
         self._end += nbytes
 
-    def size(self):
+    cdef size_t size(self):
         return self._memory.size
 
-    def free(self):
+    cdef size_t free(self):
         return self._memory.size - self._end
 
-    def length(self):
+    cdef size_t length(self):
         return self._end - self._start
 
-    def readable(self, size_t nbytes=-1):
+    cdef object readable(self, size_t nbytes=-1):
         cdef size_t end
         if nbytes == -1:
             end = self._end
@@ -85,10 +84,10 @@ cdef class Chunk:
             end = min(self._start + nbytes, self._end)
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, end, buffer.PyBUF_READ)
 
-    def consume(self, size_t nbytes):
+    cdef void consume(self, size_t nbytes):
         self._start += nbytes
 
-    def find(self, char *s, size_t start=0, size_t end=-1):
+    cdef size_t find(self, char *s, size_t start=0, size_t end=-1):
         cdef char *ret
         if end == -1:
             end = self._end
@@ -102,7 +101,7 @@ cdef class Chunk:
             return -1
         return <size_t>(ret - self._memory._buffer - self._start)
 
-    def part(self, size_t start=0, size_t end=-1):
+    cdef Chunk part(self, size_t start=0, size_t end=-1):
         if end == -1:
             end = self._end
         else:

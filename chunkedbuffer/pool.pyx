@@ -9,12 +9,12 @@ cdef class SameSizePool:
     def __init__(self, size_t size):
         self._queue = deque()
 
-    def get_chunk(self, size):
+    cdef Chunk get_chunk(self, size_t size):
         if self._queue:
             return Chunk(self._queue.pop())
         return Chunk(Memory(self._size, self))
     
-    cdef return_memory(self, Memory memory):
+    cdef void return_memory(self, Memory memory):
         self._queue.append(memory)
 
 

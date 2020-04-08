@@ -1,6 +1,6 @@
 from collections import deque
 from .chunk cimport Chunk
-from .pool cimport global_pool
+from .pool cimport global_pool, SameSizePool
 
 # TODO consistent _ and space naming
 # TODO close api for all
@@ -19,7 +19,7 @@ _DEFAULT_CHUNK_SIZE = 2048
 
 
 cdef class Buffer:
-    cdef object _pool
+    cdef SameSizePool _pool
     cdef object _chunks
     cdef Chunk _last
 
@@ -32,12 +32,14 @@ cdef class Buffer:
     def __del__(self):
         self.close()
 
-    def close(self):
+    cdef void close(self):
+        cdef Chunk chunk
         if self._chunks is not None:
             for chunk in self._chunks:
                 chunk.close()
             self._chunks.clear()
             self._chunks = None
+            # TODO (cython) can you be Chunk or None more optimized ?
             self._last = None
 
     def __bytes__(self):
@@ -50,7 +52,7 @@ cdef class Buffer:
             return self._last.length()
         return sum([x.length() for x in self._chunks])
 
-    def _add_chunk(self, chunk):
+    cdef void _add_chunk(self, Chunk chunk):
         self._chunks.append(chunk)
         self._last = chunk
 
@@ -132,7 +134,10 @@ cdef class Buffer:
                 ret._add_chunk(self._last.part())
         return ret
 
-    def take(self, nbytes=-1):
+    def take(self, size_t nbytes=-1):
+        cdef Buffer ret
+        cdef Chunk last
+        cdef size_t last_length
         if nbytes < 0:
             nbytes = len(self)
         else:
@@ -215,7 +220,8 @@ cdef class Buffer:
         return ret
 
     # Write API
-    def get_buffer(self, sizehint=-1):
+    def get_buffer(self, size_t sizehint=-1):
+        cdef Chunk chunk
         #if sizehint == -1:
             #sizehint = self._current_size
         if not self._last or self._last.free() == 0:
@@ -224,5 +230,5 @@ cdef class Buffer:
             return chunk.writable()
         return self._last.writable()
 
-    def buffer_written(self, nbytes):
+    def buffer_written(self, size_t nbytes):
         self._last.written(nbytes)

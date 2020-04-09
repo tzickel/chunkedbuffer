@@ -21,7 +21,8 @@ _DEFAULT_CHUNK_SIZE = 2048
 
 @cython.no_gc_clear
 @cython.final
-@cython.freelist(1000)
+# TODO (cython) does this mean we have 
+@cython.freelist(254)
 cdef class Buffer:
     cdef:
         Pool _pool
@@ -29,47 +30,45 @@ cdef class Buffer:
         object _chunks_append
         object _chunks_popleft
         object _chunks_clear
-        size_t _chunks_length
-        size_t _length
-        cdef Chunk _last
+        Py_ssize_t _chunks_length
+        Py_ssize_t _length
+        Chunk _last
 
-    def __cinit__(self, Pool pool=None):
-        self._pool = pool or global_pool
+    def __cinit__(self, Pool pool=global_pool):
+        self._pool = pool
         chunk = deque()
         self._chunks = chunk
         self._chunks_append = chunk.append
         self._chunks_popleft = chunk.popleft
         self._chunks_clear = chunk.clear
-        self._chunks_length = 0
-        self._length = 0
-        self._last = None
 
     # TODO circular reference ? is this a problem ?
-    # TODO _cython) __dealloc__ ?
-    def __del__(self):
+    def __dealloc__(self):
         self.close()
 
-    cdef inline void close(self):
+    cpdef inline void close(self):
         cdef:
             Chunk chunk
 
         if self._chunks is not None:
             for chunk in self._chunks:
                 chunk.close()
-            self._chunks_clear.clear()
+            self._chunks_clear()
             self._chunks = None
             self._chunks_append = None
             self._chunks_popleft = None
             self._chunks_clear = None
             # TODO (cython) can you be Chunk or None more optimized ?
             self._last = None
+            self._pool = None
 
     def __bytes__(self):
-        if self._chunks_length == 0:
-            return b''
-        elif self._chunks_length == 1:
+        if self._chunks_length == 1:
             return self._last.readable().tobytes()
+        elif self._chunks_length == 0:
+            return b''
         else:
+            # TODO (cython) faster to do casting to Chunk ?
             return b''.join([x.readable() for x in self._chunks])
 
     def __len__(self):
@@ -79,6 +78,11 @@ cdef class Buffer:
         self._chunks_append(chunk)
         self._chunks_length += 1
         self._length += chunk.length()
+        self._last = chunk
+
+    cdef inline void _add_chunk_without_length(self, Chunk chunk):
+        self._chunks_append(chunk)
+        self._chunks_length += 1
         self._last = chunk
 
     # Read API
@@ -115,11 +119,11 @@ cdef class Buffer:
         return -1
 
     # If you ask for more, you'll get what we have, it's your responsbility to check length before
-    def peek(self, size_t nbytes=-1):
+    def peek(self, Py_ssize_t nbytes=-1):
         cdef:
             Chunk chunk
             Buffer ret
-            size_t chunk_length
+            Py_ssize_t chunk_length
 
         if nbytes < 0:
             nbytes = self._length
@@ -130,34 +134,34 @@ cdef class Buffer:
             return Buffer()
         elif self._chunks_length == 1:
             ret = Buffer()
-            ret._add_chunk(self._last.part(0, nbytes))
+            ret._add_chunk(self._last.partial(nbytes))
             return ret
         else:
             ret = Buffer()
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
-                    ret._add_chunk(self._last.part(0, nbytes))
+                    ret._add_chunk(self._last.partial(nbytes))
                     break
                 else:
                     nbytes -= chunk_length
-                    ret._add_chunk(self._last.part())
+                    ret._add_chunk(self._last.clone())
             return ret
 
-    def take(self, size_t nbytes=-1):
+    def take(self, Py_ssize_t nbytes=-1):
         cdef:
             Buffer ret
             Chunk last, chunk
-            size_t last_length, chunk_length, to_remove
+            Py_ssize_t last_length, chunk_length, to_remove
         
         if nbytes < 0:
             nbytes = self._length
         else:
             nbytes = min(nbytes, self._length)
-        
+
         self._length -= nbytes
 
-        if nbytes == 0 or self._length == 0:
+        if nbytes == 0 or self._chunks_length == 0:
             return Buffer()
         elif self._chunks_length == 1:
             ret = Buffer()
@@ -169,7 +173,7 @@ cdef class Buffer:
                 self._chunks_length = 0
                 self._last = None
             else:
-                ret._add_chunk(last.part(0, nbytes))
+                ret._add_chunk(last.partial(nbytes))
                 last.consume(nbytes)
             return ret
         else:
@@ -179,7 +183,7 @@ cdef class Buffer:
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
-                    ret._add_chunk(chunk.part(0, nbytes))
+                    ret._add_chunk(chunk.partial(nbytes))
                     chunk.consume(nbytes)
                     break
                 else:
@@ -238,7 +242,7 @@ cdef class Buffer:
         return ret
 
     # Write API
-    def get_buffer(self, size_t sizehint=-1):
+    def get_buffer(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
 
@@ -246,11 +250,11 @@ cdef class Buffer:
             #sizehint = self._current_size
         if not self._last or self._last.free() == 0:
             chunk = self._pool.get_chunk(2048)
-            self._add_chunk(chunk)
+            self._add_chunk_without_length(chunk)
             return chunk.writable()
         else:
             return self._last.writable()
 
-    def buffer_written(self, size_t nbytes):
+    def buffer_written(self, Py_ssize_t nbytes):
         self._last.written(nbytes)
         self._length += nbytes

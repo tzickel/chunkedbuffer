@@ -10,6 +10,7 @@ cdef class Pool:
         raise NotImplementedError()
 
 
+# TODO (cython) implment dealloc
 @cython.final
 cdef class SameSizePool:
     def __cinit__(self, size_t size):

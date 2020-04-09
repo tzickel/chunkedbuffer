@@ -1,6 +1,7 @@
 from collections import deque
 from .chunk cimport Chunk
 from .pool cimport global_pool, Pool
+cimport cython
 
 # TODO consistent _ and space naming
 # TODO close api for all
@@ -18,45 +19,70 @@ from .pool cimport global_pool, Pool
 _DEFAULT_CHUNK_SIZE = 2048
 
 
+@cython.no_gc_clear
+@cython.final
+@cython.freelist(1000)
 cdef class Buffer:
-    cdef Pool _pool
-    cdef object _chunks
-    cdef Chunk _last
+    cdef:
+        Pool _pool
+        object _chunks
+        object _chunks_append
+        object _chunks_popleft
+        object _chunks_clear
+        size_t _chunks_length
+        size_t _length
+        cdef Chunk _last
 
-    def __init__(self, pool=None):
+    def __cinit__(self, Pool pool=None):
         self._pool = pool or global_pool
-        self._chunks = deque()
+        chunk = deque()
+        self._chunks = chunk
+        self._chunks_append = chunk.append
+        self._chunks_popleft = chunk.popleft
+        self._chunks_clear = chunk.clear
+        self._chunks_length = 0
+        self._length = 0
         self._last = None
 
     # TODO circular reference ? is this a problem ?
+    # TODO _cython) __dealloc__ ?
     def __del__(self):
         self.close()
 
-    cdef void close(self):
-        cdef Chunk chunk
+    cdef inline void close(self):
+        cdef:
+            Chunk chunk
+
         if self._chunks is not None:
             for chunk in self._chunks:
                 chunk.close()
-            self._chunks.clear()
+            self._chunks_clear.clear()
             self._chunks = None
+            self._chunks_append = None
+            self._chunks_popleft = None
+            self._chunks_clear = None
             # TODO (cython) can you be Chunk or None more optimized ?
             self._last = None
 
     def __bytes__(self):
-        if len(self._chunks) == 1:
+        if self._chunks_length == 0:
+            return b''
+        elif self._chunks_length == 1:
             return self._last.readable().tobytes()
-        return b''.join([x.readable() for x in self._chunks])
+        else:
+            return b''.join([x.readable() for x in self._chunks])
 
     def __len__(self):
-        if len(self._chunks) == 1:
-            return self._last.length()
-        return sum([x.length() for x in self._chunks])
+        return self._length
 
-    cdef void _add_chunk(self, Chunk chunk):
-        self._chunks.append(chunk)
+    cdef inline void _add_chunk(self, Chunk chunk):
+        self._chunks_append(chunk)
+        self._chunks_length += 1
+        self._length += chunk.length()
         self._last = chunk
 
     # Read API
+    # TODO fix this
     def findbyte(self, byte, start=0, end=None):
         if start < 0:
             raise ValueError("Not supporting negative indexes")
@@ -88,98 +114,90 @@ cdef class Buffer:
                 return res_idx
         return -1
 
-    # TODO optimize for finding same thing from last known position
-    def find(self, s, start=0, end=None):
-        if len(self._chunks) == 1 or isinstance(s, int) or len(s) == 1:
-            return self.findbyte(s, start, end)
-
-        # TODO we can optimize for end - length of s
-        other_s = s[1:]
-        other_s_len = len(other_s)
-        last_tried_position = start
-        while True:
-            # TODO (correctness) if end is limited, don't scan past it (in the code after this)
-            start_idx = self.findbyte(s[0], last_tried_position, end)
-            if start_idx == -1:
-                return -1
-            curr_idx = start_idx
-            for letter in other_s:
-                if self.findbyte(letter, curr_idx + 1, curr_idx + 2) == -1:
-                    break
-                curr_idx += 1
-            if other_s_len == curr_idx - start_idx:
-                return start_idx
-            last_tried_position += 1
-
     # If you ask for more, you'll get what we have, it's your responsbility to check length before
-    def peek(self, nbytes=-1):
+    def peek(self, size_t nbytes=-1):
+        cdef:
+            Chunk chunk
+            Buffer ret
+            size_t chunk_length
+
         if nbytes < 0:
-            nbytes = len(self)
+            nbytes = self._length
         else:
-            nbytes = min(nbytes, len(self))
-        
-        if len(self._chunks) == 1:
+            nbytes = min(nbytes, self._length)
+
+        if nbytes == 0 or self._length == 0:
+            return Buffer()
+        elif self._chunks_length == 1:
             ret = Buffer()
             ret._add_chunk(self._last.part(0, nbytes))
             return ret
-        
-        ret = Buffer()
-        for chunk in self._chunks:
-            chunk_length = chunk.length()
-            if nbytes < chunk_length:
-                ret._add_chunk(self._last.part(0, nbytes))
-                break
-            else:
-                nbytes -= chunk_length
-                ret._add_chunk(self._last.part())
-        return ret
+        else:
+            ret = Buffer()
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if nbytes < chunk_length:
+                    ret._add_chunk(self._last.part(0, nbytes))
+                    break
+                else:
+                    nbytes -= chunk_length
+                    ret._add_chunk(self._last.part())
+            return ret
 
     def take(self, size_t nbytes=-1):
-        cdef Buffer ret
-        cdef Chunk last
-        cdef size_t last_length
-        if nbytes < 0:
-            nbytes = len(self)
-        else:
-            nbytes = min(nbytes, len(self))
+        cdef:
+            Buffer ret
+            Chunk last, chunk
+            size_t last_length, chunk_length, to_remove
         
-        if len(self._chunks) == 1:
+        if nbytes < 0:
+            nbytes = self._length
+        else:
+            nbytes = min(nbytes, self._length)
+        
+        self._length -= nbytes
+
+        if nbytes == 0 or self._length == 0:
+            return Buffer()
+        elif self._chunks_length == 1:
             ret = Buffer()
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
                 ret._add_chunk(last)
-                self._chunks.clear()
+                self._chunks_clear()
+                self._chunks_length = 0
                 self._last = None
             else:
                 ret._add_chunk(last.part(0, nbytes))
                 last.consume(nbytes)
             return ret
-        
-        ret = Buffer()
-        to_remove = 0
-        # TODO make sure we don't make zero chunk in the end !!!
-        for chunk in self._chunks:
-            chunk_length = chunk.length()
-            if nbytes < chunk_length:
-                ret._add_chunk(chunk.part(0, nbytes))
-                chunk.consume(nbytes)
-                break
-            else:
-                nbytes -= chunk_length
-                ret._add_chunk(chunk)
-                to_remove += 1
+        else:
+            ret = Buffer()
+            to_remove = 0
+            # TODO make sure we don't make zero chunk in the end !!!
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if nbytes < chunk_length:
+                    ret._add_chunk(chunk.part(0, nbytes))
+                    chunk.consume(nbytes)
+                    break
+                else:
+                    nbytes -= chunk_length
+                    ret._add_chunk(chunk)
+                    to_remove += 1
 
-        while to_remove:
-            # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
-            self._chunks.popleft()
-            if not self._chunks:
+            while to_remove:
+                # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
+                self._chunks_popleft()
+                self._chunks_length -= 1
+            if self._chunks_length == 0:
                 self._last = None
 
-        return ret
+            return ret
 
+    # TODO fix/optimize
     def skip(self, nbytes=-1):
-        # TODO just like take, just return number of items skipped
         if nbytes == 0 or len(self) == 0:
             return 0
         elif nbytes < 0:
@@ -221,14 +239,18 @@ cdef class Buffer:
 
     # Write API
     def get_buffer(self, size_t sizehint=-1):
-        cdef Chunk chunk
+        cdef:
+            Chunk chunk
+
         #if sizehint == -1:
             #sizehint = self._current_size
         if not self._last or self._last.free() == 0:
             chunk = self._pool.get_chunk(2048)
             self._add_chunk(chunk)
             return chunk.writable()
-        return self._last.writable()
+        else:
+            return self._last.writable()
 
     def buffer_written(self, size_t nbytes):
         self._last.written(nbytes)
+        self._length += nbytes

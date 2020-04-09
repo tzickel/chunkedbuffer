@@ -12,13 +12,14 @@ cdef class Memory:
     cdef inline void decrease(self)
 
 
+# TODO (cython) will is be faster to make the * args as non * ?
 cdef class Chunk:
     cdef:
         Memory _memory
         size_t _start, _end
         bint _writable
 
-    cdef void close(self)
+    cdef inline void close(self)
     cdef inline object writable(self)
     cdef inline void written(self, size_t nbytes)
     cdef inline size_t size(self)

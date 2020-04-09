@@ -28,10 +28,10 @@ cdef class Memory:
             free(self._buffer)
             self._buffer = NULL
 
-    cdef void increase(self):
+    cdef inline void increase(self):
         self._reference += 1
 
-    cdef void decrease(self):
+    cdef inline void decrease(self):
         self._reference -= 1
         if self._reference == 0:
             self._pool.return_memory(self)
@@ -51,31 +51,31 @@ cdef class Chunk:
     def __dealloc__(self):
         self.close()
 
-    cdef void close(self):
+    cdef inline void close(self):
         if self._memory is not None:
             self._memory.decrease()
             self._memory = None
 
-    cdef object writable(self):
+    cdef inline object writable(self):
         if not self._writable:
             raise RuntimeError('This chunk is a view into another chunk and is readonly')
         return PyMemoryView_FromMemory(self._memory._buffer + self._end, self._memory.size - self._end, buffer.PyBUF_WRITE)
 
-    cdef void written(self, size_t nbytes):
+    cdef inline void written(self, size_t nbytes):
         if not self._writable:
             raise RuntimeError('This chunk is a view into another chunk and is readonly')
         self._end += nbytes
 
-    cdef size_t size(self):
+    cdef inline size_t size(self):
         return self._memory.size
 
-    cdef size_t free(self):
+    cdef inline size_t free(self):
         return self._memory.size - self._end
 
-    cdef size_t length(self):
+    cdef inline size_t length(self):
         return self._end - self._start
 
-    cdef object readable(self, size_t nbytes=-1):
+    cdef inline object readable(self, size_t nbytes=-1):
         cdef size_t end
         if nbytes == -1:
             end = self._end
@@ -83,10 +83,10 @@ cdef class Chunk:
             end = min(self._start + nbytes, self._end)
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, end, buffer.PyBUF_READ)
 
-    cdef void consume(self, size_t nbytes):
+    cdef inline void consume(self, size_t nbytes):
         self._start += nbytes
 
-    cdef size_t find(self, char *s, size_t start=0, size_t end=-1):
+    cdef inline size_t find(self, char *s, size_t start=0, size_t end=-1):
         cdef char *ret
         if end == -1:
             end = self._end
@@ -100,7 +100,7 @@ cdef class Chunk:
             return -1
         return <size_t>(ret - self._memory._buffer - self._start)
 
-    cdef Chunk part(self, size_t start=0, size_t end=-1):
+    cdef inline Chunk part(self, size_t start=0, size_t end=-1):
         if end == -1:
             end = self._end
         else:

@@ -204,6 +204,61 @@ cdef class Buffer:
 
             return ret
 
+    def take_bytes(self, Py_ssize_t nbytes=-1):
+        cdef:
+            Chunk last, chunk
+            Py_ssize_t last_length, chunk_length, to_remove
+        
+        if nbytes < 0:
+            nbytes = self._length
+        else:
+            nbytes = min(nbytes, self._length)
+
+        self._length -= nbytes
+
+        if nbytes == 0 or self._chunks_length == 0:
+            return b''
+        elif self._chunks_length == 1:
+            ret = []
+            last = self._last
+            last_length = last.length()
+            if nbytes == last_length:
+                ret.append(last.readable())
+                self._chunks_clear()
+                self._chunks_length = 0
+                self._last = None
+            else:
+                ret.append(last.readable_partial(nbytes))
+                last.consume(nbytes)
+            return b''.join(ret)
+        else:
+            return b'blah'
+            """ret = Buffer()
+            to_remove = 0
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if nbytes < chunk_length:
+                    if nbytes:
+                        ret._add_chunk(chunk.partial(nbytes))
+                        chunk.consume(nbytes)
+                    break
+                else:
+                    nbytes -= chunk_length
+                    ret._add_chunk(chunk)
+                    to_remove += 1
+
+            if to_remove == self._chunks_length:
+                self._chunks_clear()
+                self._chunks_length = 0
+                self._last = None
+            else:
+                while to_remove:
+                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
+                    self._chunks_popleft()
+                    self._chunks_length -= 1
+
+            return ret"""
+
     def skip(self, Py_ssize_t nbytes=-1):
         cdef:
             Chunk last, chunk

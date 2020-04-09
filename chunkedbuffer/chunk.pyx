@@ -76,7 +76,11 @@ cdef class Chunk:
         return self._end - self._start
 
     cdef inline object readable(self):
-        return PyMemoryView_FromMemory(self._memory._buffer + self._start, self._end, buffer.PyBUF_READ)
+        return PyMemoryView_FromMemory(self._memory._buffer + self._start, self._end - self._start, buffer.PyBUF_READ)
+
+    cdef inline object readable_partial(self, Py_ssize_t end):
+        end = min(self._start + end, self._end)
+        return PyMemoryView_FromMemory(self._memory._buffer + self._start, end - self._start, buffer.PyBUF_READ)
 
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes

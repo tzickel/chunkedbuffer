@@ -86,39 +86,41 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
-    # TODO fix this
-    def findbyte(self, byte, start=0, end=None):
-        if start < 0:
-            raise ValueError("Not supporting negative indexes")
-        if end is None:
-            end = len(self)
-        elif end < 0:
-            raise ValueError("Not supporting negative indexes")
+    def findbyte(self, char *byte, Py_ssize_t start=0, Py_ssize_t end=-1):
+        cdef:
+            Chunk chunk
+            Py_ssize_t chunk_length, res_idx
 
-        if len(self._chunks) == 1:
+        if start < 0 or end < -1:
+            raise ValueError("Not supporting negative indexes")
+        if end == -1:
+            end = self._length
+
+        if self._chunks_length == 0:
+            return -1
+        elif self._chunks_length == 1:
             return self._last.find(byte, start, end)
+        else:
+            res_idx = 0
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if start >= chunk_length:
+                    res_idx += chunk_length
+                    start -= chunk_length
+                    end -= chunk_length
+                    continue
+                if end <= 0:
+                    break
+                idx = chunk.find(byte, start, end)
+                if idx == -1:
+                    res_idx += chunk_length
+                    start = 0
+                    end -= chunk_length
+                else:
+                    res_idx += idx
+                    return res_idx
+            return -1
 
-        res_idx = 0
-        for chunk in self._chunks:
-            chunk_length = chunk.length()
-            if start >= chunk_length:
-                res_idx += chunk_length
-                start -= chunk_length
-                end -= chunk_length
-                continue
-            if end <= 0:
-                break
-            idx = chunk.find(byte, start, end)
-            if idx == -1:
-                res_idx += chunk_length
-                start = 0
-                end -= chunk_length
-            else:
-                res_idx += idx
-                return res_idx
-        return -1
-
-    # If you ask for more, you'll get what we have, it's your responsbility to check length before
     def peek(self, Py_ssize_t nbytes=-1):
         cdef:
             Buffer ret
@@ -134,7 +136,7 @@ cdef class Buffer:
             return Buffer()
         elif self._chunks_length == 1:
             ret = Buffer()
-            ret._add_chunk(self._last.partial(nbytes))
+            ret._add_chunk(self._last.clone_partial(nbytes))
             return ret
         else:
             ret = Buffer()
@@ -142,12 +144,40 @@ cdef class Buffer:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
                     if nbytes:
-                        ret._add_chunk(self._last.partial(nbytes))
+                        ret._add_chunk(chunk.clone_partial(nbytes))
                     break
                 else:
                     nbytes -= chunk_length
-                    ret._add_chunk(self._last.clone())
+                    ret._add_chunk(chunk.clone())
             return ret
+
+    def peek_bytes(self, Py_ssize_t nbytes=-1):
+        cdef:
+            list ret
+            Chunk chunk
+            Py_ssize_t chunk_length
+
+        if nbytes < 0:
+            nbytes = self._length
+        else:
+            nbytes = min(nbytes, self._length)
+
+        if nbytes == 0 or self._length == 0:
+            return b''
+        elif self._chunks_length == 1:
+            return self._last.clone_partial(nbytes).tobytes()
+        else:
+            ret = []
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if nbytes < chunk_length:
+                    if nbytes:
+                        ret.append(chunk.readable_partial(nbytes))
+                    break
+                else:
+                    nbytes -= chunk_length
+                    ret.append(chunk.readable())
+            return b''.join(ret)
 
     def take(self, Py_ssize_t nbytes=-1):
         cdef:
@@ -174,7 +204,7 @@ cdef class Buffer:
                 self._chunks_length = 0
                 self._last = None
             else:
-                ret._add_chunk(last.partial(nbytes))
+                ret._add_chunk(last.clone_partial(nbytes))
                 last.consume(nbytes)
             return ret
         else:
@@ -184,7 +214,7 @@ cdef class Buffer:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
                     if nbytes:
-                        ret._add_chunk(chunk.partial(nbytes))
+                        ret._add_chunk(chunk.clone_partial(nbytes))
                         chunk.consume(nbytes)
                     break
                 else:
@@ -198,14 +228,17 @@ cdef class Buffer:
                 self._last = None
             else:
                 while to_remove:
-                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
+                    # We don't call .close() here on chunks because either we still use them, or they have transfered ownership
                     self._chunks_popleft()
                     self._chunks_length -= 1
+                    to_remove -= 1
 
             return ret
 
     def take_bytes(self, Py_ssize_t nbytes=-1):
         cdef:
+            list ret
+            object single_return
             Chunk last, chunk
             Py_ssize_t last_length, chunk_length, to_remove
         
@@ -219,45 +252,43 @@ cdef class Buffer:
         if nbytes == 0 or self._chunks_length == 0:
             return b''
         elif self._chunks_length == 1:
-            ret = []
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
-                ret.append(last.readable())
+                single_return = last.readable().tobytes()
+                last.close()
                 self._chunks_clear()
                 self._chunks_length = 0
                 self._last = None
             else:
-                ret.append(last.readable_partial(nbytes))
+                single_return = last.readable_partial(nbytes).tobytes()
                 last.consume(nbytes)
-            return b''.join(ret)
+            return single_return
         else:
-            return b'blah'
-            """ret = Buffer()
+            ret = []
             to_remove = 0
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
                     if nbytes:
-                        ret._add_chunk(chunk.partial(nbytes))
+                        ret.append(chunk.readable_partial(nbytes))
                         chunk.consume(nbytes)
                     break
                 else:
                     nbytes -= chunk_length
-                    ret._add_chunk(chunk)
+                    ret.append(chunk.readable())
                     to_remove += 1
 
-            if to_remove == self._chunks_length:
-                self._chunks_clear()
-                self._chunks_length = 0
-                self._last = None
-            else:
-                while to_remove:
-                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
-                    self._chunks_popleft()
-                    self._chunks_length -= 1
+            single_return = b''.join(ret)
 
-            return ret"""
+            while to_remove:
+                self._chunks_popleft().close()
+                self._chunks_length -= 1
+                to_remove -= 1
+            if self._chunks_length == 0:
+                self._last = None
+
+            return single_return
 
     def skip(self, Py_ssize_t nbytes=-1):
         cdef:
@@ -279,6 +310,7 @@ cdef class Buffer:
             if nbytes == last_length:
                 self._chunks_clear()
                 self._chunks_length = 0
+                last.close()
                 self._last = None
             else:
                 last.consume(nbytes)
@@ -294,6 +326,7 @@ cdef class Buffer:
                         chunk.consume(nbytes)
                     break
                 else:
+                    chunk.close()
                     nbytes -= chunk_length
                     ret += chunk_length
                     to_remove += 1
@@ -304,9 +337,9 @@ cdef class Buffer:
                 self._last = None
             else:
                 while to_remove:
-                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
                     self._chunks_popleft()
                     self._chunks_length -= 1
+                    to_remove -= 1
 
             return ret
 

@@ -37,7 +37,7 @@ cdef class UnboundedPool:
         self._memory = {}
 
     cdef Chunk get_chunk(self, Py_ssize_t size):
-        size = 1 << (size - 1).bit_length()
+        #size = 1 << (size - 1).bit_length()
         memory = self._memory.get(size)
 
         if not memory:

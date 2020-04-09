@@ -11,7 +11,6 @@ cdef extern from "string.h" nogil:
     void *memchr(const void *, int, Py_ssize_t)
 
 
-# TODO pool can be the pool return function directly...
 @cython.no_gc_clear
 @cython.final
 cdef class Memory:
@@ -26,7 +25,6 @@ cdef class Memory:
     def __dealloc__(self):
         if self._buffer is not NULL:
             free(self._buffer)
-            self._buffer = NULL
 
     cdef inline void increase(self):
         self._reference += 1
@@ -49,7 +47,8 @@ cdef class Chunk:
         self._memory.increase()
 
     def __dealloc__(self):
-        self.close()
+        if self._memory is not None:
+            self._memory.decrease()
 
     cdef inline void close(self):
         if self._memory is not None:
@@ -61,9 +60,8 @@ cdef class Chunk:
             raise RuntimeError('This chunk is a view into another chunk and is readonly')
         return PyMemoryView_FromMemory(self._memory._buffer + self._end, self._memory.size - self._end, buffer.PyBUF_WRITE)
 
+    # TODO (safety) add sanity check ?
     cdef inline void written(self, Py_ssize_t nbytes):
-        if not self._writable:
-            raise RuntimeError('This chunk is a view into another chunk and is readonly')
         self._end += nbytes
 
     cdef inline Py_ssize_t size(self):
@@ -79,12 +77,12 @@ cdef class Chunk:
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, self._end - self._start, buffer.PyBUF_READ)
 
     cdef inline object readable_partial(self, Py_ssize_t end):
-        end = min(self._start + end, self._end)
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, end - self._start, buffer.PyBUF_READ)
 
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes
 
+    # TODO only start ?
     cdef inline Py_ssize_t find(self, char *s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef char *ret
         if end == -1:
@@ -94,7 +92,7 @@ cdef class Chunk:
         if len(s) == 1:
             ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end)
         else:
-            raise NotImplementedError()
+            raise NotImplementedError("Can find only one character for now")
         if ret == NULL:
             return -1
         return <Py_ssize_t>(ret - self._memory._buffer - self._start)
@@ -106,7 +104,7 @@ cdef class Chunk:
         ret._writable = False
         return ret
 
-    cdef inline Chunk partial(self, Py_ssize_t end):
+    cdef inline Chunk clone_partial(self, Py_ssize_t end):
         end = min(self._start + end, self._end)
         ret = Chunk(self._memory)
         ret._start = self._start

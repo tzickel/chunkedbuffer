@@ -1,5 +1,6 @@
 from .pool cimport Pool
 
+
 cdef class Memory:
     cdef:
         public Py_ssize_t size
@@ -29,4 +30,4 @@ cdef class Chunk:
     cdef inline void consume(self, Py_ssize_t nbytes)
     cdef inline Py_ssize_t find(self, char *s, Py_ssize_t start=*, Py_ssize_t end=*)
     cdef inline Chunk clone(self)
-    cdef inline Chunk partial(self, Py_ssize_t end)
+    cdef inline Chunk clone_partial(self, Py_ssize_t end)

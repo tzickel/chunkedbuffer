@@ -1,5 +1,5 @@
 from collections import deque
-from .chunk cimport Chunk, Memory
+cimport cython
 
 
 cdef class Pool:
@@ -10,29 +10,32 @@ cdef class Pool:
         raise NotImplementedError()
 
 
+@cython.final
 cdef class SameSizePool:
     def __cinit__(self, size_t size):
         self._size = size
-    
-    def __init__(self, size_t size):
         self._queue = deque()
+        self._queue_append = self._queue.append
+        self._queue_pop = self._queue.pop
+        self._length = 0
 
     cdef Chunk get_chunk(self, size_t size):
-        if self._queue:
-            return Chunk(self._queue.pop())
+        if self._length:
+            self._length -= 1
+            return Chunk(self._queue_pop())
         return Chunk(Memory(self._size, self))
     
     cdef void return_memory(self, Memory memory):
-        self._queue.append(memory)
+        self._length += 1
+        self._queue_append(memory)
 
 
-class UnboundedPool:
-    __slots__ = '_memory'
-
-    def __init__(self):
+@cython.final
+cdef class UnboundedPool:
+    def __cinit__(self):
         self._memory = {}
 
-    def get_chunk(self, size_t size):
+    cdef Chunk get_chunk(self, size_t size):
         size = 1 << (size - 1).bit_length()
         memory = self._memory.get(size)
 
@@ -41,7 +44,7 @@ class UnboundedPool:
         else:
             return Chunk(memory.pop())
 
-    def return_memory(self, memory):
+    cdef void return_memory(self, Memory memory):
         self._memory.setdefault(memory.size, deque()).append(memory)
 
     def reset(self):

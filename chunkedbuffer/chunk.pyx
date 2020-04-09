@@ -1,7 +1,6 @@
 from libc.stdlib cimport malloc, free
 from cpython cimport buffer
 cimport cython
-from .pool cimport Pool
 
 
 cdef extern from "Python.h":

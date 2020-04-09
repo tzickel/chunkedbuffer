@@ -1,7 +1,7 @@
 from libc.stdlib cimport malloc, free
 from cpython cimport buffer
 cimport cython
-from .pool cimport SameSizePool
+from .pool cimport Pool
 
 
 cdef extern from "Python.h":
@@ -16,7 +16,7 @@ cdef extern from "string.h" nogil:
 @cython.no_gc_clear
 @cython.final
 cdef class Memory:
-    def __cinit__(self, size_t size, SameSizePool pool):
+    def __cinit__(self, size_t size, Pool pool):
         self.size = size
         self._buffer = <char *>malloc(size)
         if self._buffer is NULL:

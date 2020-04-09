@@ -1,11 +1,11 @@
-from .pool cimport SameSizePool
+from .pool cimport Pool
 
 
 cdef class Memory:
     cdef public size_t size
     cdef size_t _reference
     cdef char *_buffer
-    cdef SameSizePool _pool
+    cdef Pool _pool
 
     cdef void increase(self)
     cdef void decrease(self)

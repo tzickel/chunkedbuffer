@@ -2,6 +2,14 @@ from collections import deque
 from .chunk cimport Chunk, Memory
 
 
+cdef class Pool:
+    cdef Chunk get_chunk(self, size_t size):
+        raise NotImplementedError()
+
+    cdef void return_memory(self, Memory memory):
+        raise NotImplementedError()
+
+
 cdef class SameSizePool:
     def __cinit__(self, size_t size):
         self._size = size

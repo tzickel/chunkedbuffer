@@ -1,6 +1,6 @@
 from collections import deque
 from .chunk cimport Chunk
-from .pool cimport global_pool, SameSizePool
+from .pool cimport global_pool, Pool
 
 # TODO consistent _ and space naming
 # TODO close api for all
@@ -19,7 +19,7 @@ _DEFAULT_CHUNK_SIZE = 2048
 
 
 cdef class Buffer:
-    cdef SameSizePool _pool
+    cdef Pool _pool
     cdef object _chunks
     cdef Chunk _last
 

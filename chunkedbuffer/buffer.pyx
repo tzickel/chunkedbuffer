@@ -121,8 +121,8 @@ cdef class Buffer:
     # If you ask for more, you'll get what we have, it's your responsbility to check length before
     def peek(self, Py_ssize_t nbytes=-1):
         cdef:
-            Chunk chunk
             Buffer ret
+            Chunk chunk
             Py_ssize_t chunk_length
 
         if nbytes < 0:
@@ -141,7 +141,8 @@ cdef class Buffer:
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
-                    ret._add_chunk(self._last.partial(nbytes))
+                    if nbytes:
+                        ret._add_chunk(self._last.partial(nbytes))
                     break
                 else:
                     nbytes -= chunk_length
@@ -179,67 +180,80 @@ cdef class Buffer:
         else:
             ret = Buffer()
             to_remove = 0
-            # TODO make sure we don't make zero chunk in the end !!!
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
-                    ret._add_chunk(chunk.partial(nbytes))
-                    chunk.consume(nbytes)
+                    if nbytes:
+                        ret._add_chunk(chunk.partial(nbytes))
+                        chunk.consume(nbytes)
                     break
                 else:
                     nbytes -= chunk_length
                     ret._add_chunk(chunk)
                     to_remove += 1
 
-            while to_remove:
-                # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
-                self._chunks_popleft()
-                self._chunks_length -= 1
-            if self._chunks_length == 0:
+            if to_remove == self._chunks_length:
+                self._chunks_clear()
+                self._chunks_length = 0
                 self._last = None
+            else:
+                while to_remove:
+                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
+                    self._chunks_popleft()
+                    self._chunks_length -= 1
 
             return ret
 
-    # TODO fix/optimize
-    def skip(self, nbytes=-1):
-        if nbytes == 0 or len(self) == 0:
-            return 0
-        elif nbytes < 0:
+    def skip(self, Py_ssize_t nbytes=-1):
+        cdef:
+            Chunk last, chunk
+            Py_ssize_t last_length, to_remove, chunk_length, ret
+
+        if nbytes < 0:
             nbytes = len(self)
         else:
             nbytes = min(nbytes, len(self))
-        
-        if len(self._chunks) == 1:
+
+        self._length -= nbytes
+
+        if nbytes == 0 or self._chunks_length == 0:
+            return 0
+        elif self._chunks_length == 1:
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
-                self._chunks.clear()
+                self._chunks_clear()
+                self._chunks_length = 0
                 self._last = None
             else:
                 last.consume(nbytes)
             return nbytes
+        else:
+            ret = 0
+            to_remove = 0
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                if nbytes < chunk_length:
+                    if nbytes:
+                        ret += nbytes
+                        chunk.consume(nbytes)
+                    break
+                else:
+                    nbytes -= chunk_length
+                    ret += chunk_length
+                    to_remove += 1
 
-        ret = 0
-        to_remove = 0
-        # TODO make sure we don't make zero chunk in the end !!!
-        for chunk in self._chunks:
-            chunk_length = chunk.length()
-            if nbytes < chunk_length:
-                ret += nbytes
-                chunk.consume(nbytes)
-                break
-            else:
-                nbytes -= chunk_length
-                ret += chunk_length
-                to_remove += 1
-
-        while to_remove:
-            # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
-            self._chunks.popleft()
-            if not self._chunks:
+            if to_remove == self._chunks_length:
+                self._chunks_clear()
+                self._chunks_length = 0
                 self._last = None
+            else:
+                while to_remove:
+                    # TODO would be nice to explicitly call .close on chunks here but we don't know if partial or not, for now __del__ should do it.
+                    self._chunks_popleft()
+                    self._chunks_length -= 1
 
-        return ret
+            return ret
 
     # Write API
     def get_buffer(self, Py_ssize_t sizehint=-1):

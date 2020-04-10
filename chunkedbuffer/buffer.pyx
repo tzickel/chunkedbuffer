@@ -23,7 +23,7 @@ _DEFAULT_CHUNK_SIZE = 2048
 
 @cython.no_gc_clear
 @cython.final
-# TODO (cython) does this mean we have 
+# TODO (cython) what is a good value to put here ?
 @cython.freelist(254)
 cdef class Buffer:
     cdef:
@@ -44,13 +44,14 @@ cdef class Buffer:
         self._number_of_lower_than_expected = 0
         self._pool = pool
         chunk = deque()
+        # TODO (cython) do I need to hold this refernece at all ?
         self._chunks = chunk
         self._chunks_append = chunk.append
         self._chunks_popleft = chunk.popleft
         self._chunks_clear = chunk.clear
 
-    # TODO circular reference ? is this a problem ?
-    # TODO do we need __del__ to reclaim items in freelist ?
+    # TODO (cython) is there a circular reference here ? If so so I need no_gc_clear ?
+    # TODO (cython) is this still called using the freelist or do we need to put this in __del__ ?
     def __dealloc__(self):
         self.close()
 
@@ -71,13 +72,15 @@ cdef class Buffer:
             self._pool = None
 
     def __bytes__(self):
+        cdef:
+            Chunk chunk
+
         if self._chunks_length == 1:
             return self._last.readable().tobytes()
         elif self._chunks_length == 0:
             return b''
         else:
-            # TODO (cython) faster to do casting to Chunk ?
-            return b''.join([x.readable() for x in self._chunks])
+            return b''.join([chunk.readable() for chunk in self._chunks])
 
     def __len__(self):
         return self._length
@@ -94,43 +97,6 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
-    # TODO works bad, review it
-    def findbyte(self, const unsigned char [:] byte, Py_ssize_t start=0, Py_ssize_t end=-1):
-        cdef:
-            Chunk chunk
-            Py_ssize_t chunk_length, res_idx, idx
-
-        if start < 0 or end < -1:
-            raise ValueError("Not supporting negative indexes")
-        if end == -1:
-            end = self._length
-
-        if self._chunks_length == 0:
-            return -1
-        elif self._chunks_length == 1:
-            return self._last.find(byte, start, end)
-        else:
-            res_idx = 0
-            for chunk in self._chunks:
-                chunk_length = chunk.length()
-                if start >= chunk_length:
-                    res_idx += chunk_length
-                    start -= chunk_length
-                    end -= chunk_length
-                    continue
-                if end <= 0:
-                    break
-                idx = chunk.find(byte, start, end)
-                if idx == -1:
-                    res_idx += chunk_length
-                    start = 0
-                    end -= chunk_length
-                else:
-                    res_idx += idx
-                    return res_idx
-            return -1
-
-    # TODO check s is shorter than min or abort...
     def find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Chunk chunk, prev_chunk
@@ -171,7 +137,7 @@ cdef class Buffer:
                         return res_idx
                 return -1
             else:
-                tmp = <unsigned char*>PyMem_Malloc((len_s - 1 ) * 2)
+                tmp = <unsigned char*>PyMem_Malloc((len_s - 1) * 2)
                 if not tmp:
                     raise MemoryError()
                 prev_chunk = None
@@ -180,11 +146,12 @@ cdef class Buffer:
                 for chunk in self._chunks:
                     chunk_length = chunk.length()
                     if prev_chunk:
-                        # TODO careful about chkn being eaten too mcuh (use prev_chunk_length)
+                        # To simplify this code, we will fail if chunk_length is shorter than the string we are looking for
+                        # TODO we need to be carefull here that both prev_chunk and chunk can hold this search string, or abort with an error !
+                        #copy_from_first = 
                         memcpy(tmp, <const void *>prev_chunk.__raw_address_end() - len_s + 1, len_s - 1)
                         memcpy(tmp + len_s - 1, <const void *>chunk.__raw_address_start(), len_s - 1)
                         ret = <uintptr_t>memmem(tmp, (len_s - 1) * 2, <const void *>&s[0], len_s)
-                        #print(ret, <uintptr_t>tmp, res_idx, prev_chunk_length, len_s)
                         if ret:
                             ret = ret - (<uintptr_t>tmp) + res_idx - len_s + 1
                             PyMem_Free(tmp)

@@ -5,9 +5,13 @@ cimport cython
 from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from libc.stdint cimport uintptr_t
+# TODO nogil ? really ?
 cdef extern from "string.h" nogil:
     # TODO (cython) what to do on platforms where this does not exist....
     void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
+
+cdef extern from "alloca.h":
+    void *alloca(size_t size)
 
 # TODO consistent function naming
 # TODO make sure there is close api for everything
@@ -137,7 +141,7 @@ cdef class Buffer:
                         return res_idx
                 return -1
             else:
-                tmp = <unsigned char*>PyMem_Malloc((len_s - 1) * 2)
+                tmp = <unsigned char*>alloca((len_s - 1) * 2)
                 if not tmp:
                     raise MemoryError()
                 prev_chunk = None
@@ -154,7 +158,6 @@ cdef class Buffer:
                         ret = <uintptr_t>memmem(tmp, (len_s - 1) * 2, <const void *>&s[0], len_s)
                         if ret:
                             ret = ret - (<uintptr_t>tmp) + res_idx - len_s + 1
-                            PyMem_Free(tmp)
                             return ret
                     if start >= chunk_length:
                         res_idx += chunk_length
@@ -172,11 +175,9 @@ cdef class Buffer:
                         end -= chunk_length
                     else:
                         res_idx += idx
-                        PyMem_Free(tmp)
                         return res_idx
                     prev_chunk = chunk
                     prev_chunk_length = chunk_length
-                PyMem_Free(tmp)
                 return -1
 
     def peek(self, Py_ssize_t nbytes=-1):

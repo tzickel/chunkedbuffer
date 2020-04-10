@@ -45,6 +45,7 @@ cdef class Buffer:
         Py_ssize_t _number_of_lower_than_expected
         Chunk _last
 
+    # TODO maybe call buffer inside, get_chunk, and minimum_chunk_size
     def __cinit__(self, Py_ssize_t minimum_buffer_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
         self._minimum_buffer_size = minimum_buffer_size
         self._current_buffer_size = minimum_buffer_size

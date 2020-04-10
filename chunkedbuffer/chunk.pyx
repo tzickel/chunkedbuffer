@@ -99,10 +99,10 @@ cdef class Chunk:
             end = min(self._start + end, self._end)
         s_length = len(s)
         if s_length == 1:
-            ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end - 1)
+            ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end)
         else:
             # TODO is this the correct way to do this ?
-            ret = <char *>memmem(self._memory._buffer + self._start + start, end - 1, <const void *>&s[0], s_length)
+            ret = <char *>memmem(self._memory._buffer + self._start + start, end, <const void *>&s[0], s_length)
         if ret == NULL:
             return -1
         return <Py_ssize_t>(ret - self._memory._buffer - self._start)
@@ -121,3 +121,6 @@ cdef class Chunk:
         ret._end = end
         ret._writable = False
         return ret
+
+    cdef inline uintptr_t __raw_address(self):
+        return <uintptr_t>(self._memory._buffer + self._start)

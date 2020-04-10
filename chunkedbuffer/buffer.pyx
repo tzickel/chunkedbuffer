@@ -3,6 +3,7 @@ from .chunk cimport Chunk
 from .pool cimport global_pool, Pool
 cimport cython
 from libc.string cimport memcpy
+from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
 # TODO consistent function naming
 # TODO make sure there is close api for everything
@@ -89,7 +90,6 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
-    # TODO (cython) byte will ignore null, not good...
     # TODO works bad, review it
     def findbyte(self, const unsigned char [:] byte, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
@@ -126,43 +126,80 @@ cdef class Buffer:
                     return res_idx
             return -1
 
-    # make sure string is less than chunk size, then we can split in mids and lookup !
-    def find(self, const unsigned char [:] byte, Py_ssize_t start=0, Py_ssize_t end=-1):
+    # TODO check s is shorter than min or abort...
+    def find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
-            Py_ssize_t byte_len
             Chunk chunk, prev_chunk
+            Py_ssize_t chunk_length, res_idx, idx, len_s
+            unsigned char* tmp
+
+        len_s = len(s)
+
+        if start < 0 or end < -1:
+            raise ValueError("Not supporting negative indexes")
+        if end == -1:
+            end = self._length
 
         if self._chunks_length == 0:
             return -1
-
-        byte_len = len(byte)
-        if byte_len == 1 or self._chunks_length == 1:
-            return self.findbyte(byte, start, end)
-
-        prev_chunk = None            
-        res_idx = 0
-        for chunk in self._chunks:
-            if prev_chunk:
-                print(1)
-            chunk_length = chunk.length()
-            if start >= chunk_length:
-                res_idx += chunk_length
-                start -= chunk_length
-                end -= chunk_length
-                prev_chunk = chunk
-                continue
-            if end <= 0:
-                break
-            idx = chunk.find(byte, start, end)
-            if idx == -1:
-                res_idx += chunk_length
-                start = 0
-                end -= chunk_length
+        elif self._chunks_length == 1:
+            return self._last.find(s, start, end)
+        else:
+            if len_s == 1:
+                res_idx = 0
+                for chunk in self._chunks:
+                    chunk_length = chunk.length()
+                    if start >= chunk_length:
+                        res_idx += chunk_length
+                        start -= chunk_length
+                        end -= chunk_length
+                        continue
+                    if end <= 0:
+                        break
+                    idx = chunk.find(s, start, end)
+                    if idx == -1:
+                        res_idx += chunk_length
+                        start = 0
+                        end -= chunk_length
+                    else:
+                        res_idx += idx
+                        return res_idx
+                return -1
             else:
-                res_idx += idx
-                return res_idx
-            prev_chunk = chunk
-        return -1
+                tmp = <unsigned char*>PyMem_Malloc((len_s - 1 ) * 2)
+                if not tmp:
+                    raise MemoryError()
+                prev_chunk = None
+                res_idx = 0
+                for chunk in self._chunks:
+                    chunk_length = chunk.length()
+                    if prev_chunk:
+                        # TODO careful about chkn being eaten too mcuh
+                        print(prev_chunk.readable_partial(len_s - 1).tobytes())
+                        print(chunk.readable_partial(len_s - 1).tobytes())
+                        memcpy(tmp, <const void *>prev_chunk.__raw_address(), len_s - 1)
+                        memcpy(tmp + len_s - 1, <const void *>chunk.__raw_address(), len_s - 1)
+                        print(tmp)
+                    if start >= chunk_length:
+                        res_idx += chunk_length
+                        start -= chunk_length
+                        end -= chunk_length
+                        prev_chunk = chunk
+                        continue
+                    if end <= 0:
+                        break
+                    idx = chunk.find(s, start, end)
+                    if idx == -1:
+                        res_idx += chunk_length
+                        start = 0
+                        end -= chunk_length
+                    else:
+                        res_idx += idx
+                        PyMem_Free(tmp)
+                        return res_idx
+                    prev_chunk = chunk
+                PyMem_Free(tmp)
+                return -1
 
     def peek(self, Py_ssize_t nbytes=-1):
         cdef:

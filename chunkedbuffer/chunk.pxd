@@ -1,4 +1,5 @@
 from .pool cimport Pool
+from libc.stdint cimport uintptr_t
 
 
 cdef class Memory:
@@ -31,3 +32,4 @@ cdef class Chunk:
     cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1)
     cdef inline Chunk clone(self)
     cdef inline Chunk clone_partial(self, Py_ssize_t end)
+    cdef inline uintptr_t __raw_address(self)

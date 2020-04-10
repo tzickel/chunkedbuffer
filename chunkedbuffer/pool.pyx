@@ -1,3 +1,6 @@
+# distutils: define_macros=CYTHON_TRACE_NOGIL=1
+
+
 from collections import deque
 cimport cython
 

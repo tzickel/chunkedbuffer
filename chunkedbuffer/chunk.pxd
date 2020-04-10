@@ -32,4 +32,5 @@ cdef class Chunk:
     cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1)
     cdef inline Chunk clone(self)
     cdef inline Chunk clone_partial(self, Py_ssize_t end)
-    cdef inline uintptr_t __raw_address(self)
+    cdef inline uintptr_t __raw_address_start(self)
+    cdef inline uintptr_t __raw_address_end(self)

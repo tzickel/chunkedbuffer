@@ -122,5 +122,8 @@ cdef class Chunk:
         ret._writable = False
         return ret
 
-    cdef inline uintptr_t __raw_address(self):
+    cdef inline uintptr_t __raw_address_start(self):
         return <uintptr_t>(self._memory._buffer + self._start)
+
+    cdef inline uintptr_t __raw_address_end(self):
+        return <uintptr_t>(self._memory._buffer + self._end)

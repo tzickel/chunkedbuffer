@@ -4,6 +4,10 @@ from .pool cimport global_pool, Pool
 cimport cython
 from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
+from libc.stdint cimport uintptr_t
+cdef extern from "string.h" nogil:
+    # TODO (cython) what to do on platforms where this does not exist....
+    void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
 # TODO consistent function naming
 # TODO make sure there is close api for everything
@@ -130,8 +134,9 @@ cdef class Buffer:
     def find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Chunk chunk, prev_chunk
-            Py_ssize_t chunk_length, res_idx, idx, len_s
+            Py_ssize_t chunk_length, prev_chunk_length, res_idx, idx, len_s
             unsigned char* tmp
+            uintptr_t ret
 
         len_s = len(s)
 
@@ -170,21 +175,26 @@ cdef class Buffer:
                 if not tmp:
                     raise MemoryError()
                 prev_chunk = None
+                prev_chunk_length = 0
                 res_idx = 0
                 for chunk in self._chunks:
                     chunk_length = chunk.length()
                     if prev_chunk:
-                        # TODO careful about chkn being eaten too mcuh
-                        print(prev_chunk.readable_partial(len_s - 1).tobytes())
-                        print(chunk.readable_partial(len_s - 1).tobytes())
-                        memcpy(tmp, <const void *>prev_chunk.__raw_address(), len_s - 1)
-                        memcpy(tmp + len_s - 1, <const void *>chunk.__raw_address(), len_s - 1)
-                        print(tmp)
+                        # TODO careful about chkn being eaten too mcuh (use prev_chunk_length)
+                        memcpy(tmp, <const void *>prev_chunk.__raw_address_end() - len_s + 1, len_s - 1)
+                        memcpy(tmp + len_s - 1, <const void *>chunk.__raw_address_start(), len_s - 1)
+                        ret = <uintptr_t>memmem(tmp, (len_s - 1) * 2, <const void *>&s[0], len_s)
+                        #print(ret, <uintptr_t>tmp, res_idx, prev_chunk_length, len_s)
+                        if ret:
+                            ret = ret - (<uintptr_t>tmp) + res_idx - len_s + 1
+                            PyMem_Free(tmp)
+                            return ret
                     if start >= chunk_length:
                         res_idx += chunk_length
                         start -= chunk_length
                         end -= chunk_length
                         prev_chunk = chunk
+                        prev_chunk_length = chunk_length
                         continue
                     if end <= 0:
                         break
@@ -198,6 +208,7 @@ cdef class Buffer:
                         PyMem_Free(tmp)
                         return res_idx
                     prev_chunk = chunk
+                    prev_chunk_length = chunk_length
                 PyMem_Free(tmp)
                 return -1
 

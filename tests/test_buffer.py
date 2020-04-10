@@ -36,6 +36,18 @@ def test_simple():
     assert bytes(b.take()) == b''
 
 
+def test_buffer_close():
+    b = Buffer()
+    write_exact(b, b'test')
+    b.close()
+
+
 def test_buffer_len():
     b = Buffer()
+    assert len(b) == 0
+    write_exact(b, b'test')
+    assert len(b) == 4
+    assert bytes(b.peek()) == b'test'
+    assert len(b) == 4
+    assert bytes(b.take()) == b'test'
     assert len(b) == 0

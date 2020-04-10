@@ -9,6 +9,8 @@ cdef extern from "Python.h":
 
 cdef extern from "string.h" nogil:
     void *memchr(const void *, int, Py_ssize_t)
+    # TODO (cython) what to do on platforms where this does not exist....
+    void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
 
 @cython.no_gc_clear
@@ -73,6 +75,10 @@ cdef class Chunk:
     cdef inline Py_ssize_t length(self):
         return self._end - self._start
 
+    # TODO why is this so much slower than the other option ? with bytes(result) instead of result.tobytes()
+    #cdef inline const char [:] readable(self):
+        #return <const char [:self._end - self._start]>(self._memory._buffer + self._start)
+
     cdef inline object readable(self):
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, self._end - self._start, buffer.PyBUF_READ)
 
@@ -82,17 +88,21 @@ cdef class Chunk:
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes
 
-    # TODO only start ?
-    cdef inline Py_ssize_t find(self, char *s, Py_ssize_t start=0, Py_ssize_t end=-1):
-        cdef char *ret
+    cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
+        cdef:
+            char *ret
+            Py_ssize_t s_length
+
         if end == -1:
             end = self._end
         else:
             end = min(self._start + end, self._end)
-        if len(s) == 1:
-            ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end)
+        s_length = len(s)
+        if s_length == 1:
+            ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end - 1)
         else:
-            raise NotImplementedError("Can find only one character for now")
+            # TODO is this the correct way to do this ?
+            ret = <char *>memmem(self._memory._buffer + self._start + start, end - 1, <const void *>&s[0], s_length)
         if ret == NULL:
             return -1
         return <Py_ssize_t>(ret - self._memory._buffer - self._start)

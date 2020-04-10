@@ -28,6 +28,6 @@ cdef class Chunk:
     cdef inline object readable(self)
     cdef inline object readable_partial(self, Py_ssize_t end)
     cdef inline void consume(self, Py_ssize_t nbytes)
-    cdef inline Py_ssize_t find(self, char *s, Py_ssize_t start=*, Py_ssize_t end=*)
+    cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1)
     cdef inline Chunk clone(self)
     cdef inline Chunk clone_partial(self, Py_ssize_t end)

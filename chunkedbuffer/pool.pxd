@@ -20,10 +20,7 @@ cdef class SameSizePool(Pool):
 
 cdef class UnboundedPool(Pool):
     cdef:
-        Py_ssize_t _size
-        object _queue
-        object _append
-        object _pop
+        dict _memory
 
     cdef Chunk get_chunk(self, Py_ssize_t size)
     cdef void return_memory(self, Memory memory)

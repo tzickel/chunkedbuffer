@@ -53,5 +53,5 @@ cdef class UnboundedPool:
         self._memory = {}
 
 
-#global_pool = UnboundedPool()
-global_pool = SameSizePool(2**14)
+global_pool = UnboundedPool()
+#global_pool = SameSizePool(2**14)

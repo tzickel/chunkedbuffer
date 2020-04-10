@@ -4,13 +4,13 @@ An attempt at making an generic efficient API for streaming binary I/O implmenta
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
 ## How ?
-The Pipe class defines write API for providing buffers to be written to with data from a stream.
+The Buffer class defines write API for providing buffers to be written to with data from a stream.
 
-The Pipe class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
+The Buffer class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
 
-The read API has both one copy (convert to bytes) or zero copy (return the original buffer data via a memoryview with _zerocopy commands).
+The read API has both zero copy and one copy (convert to bytes) commands.
 
-The data is held inside the Pipe by a series of non contiguous list of buffers which are called Chunks.
+The data is held inside the Buffer by a series of non contiguous list of buffers which are called Chunks.
 
 The Chunks are re-used by a pool to minimize allocation and improve performance especially in concurrent scenarios.
 
@@ -31,15 +31,15 @@ Replace master with the specific branch or version tag you want.
 
 ## Example
 ```python
-from chunkedbuffer import Pipe
+from chunkedbuffer import Buffer
 
 if __name__ == "__main__":
-    pipe = Pipe()
+    buffer = Buffer()
     # We can use here the default value -1, if our writing implmentation can handle arbitrary sizes (like socket.recv_into can)
-    buffer = pipe.get_buffer(4)
+    buff = pipe.get_buffer(4)
     # Because the returned buffer might be bigger than 4, and this is an example code, we need to write it like this
-    buffer[:4] = b'test'
-    pipe.buffer_written(4)
+    buff[:4] = b'test'
+    buffer.buffer_written(4)
     # The functions return None when there is not enough data to return
     assert pipe.readuntil(b'\r\n') == None
     # You must request a buffer each time you want to write new data

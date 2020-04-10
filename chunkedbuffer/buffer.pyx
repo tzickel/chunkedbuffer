@@ -2,18 +2,15 @@ from collections import deque
 from .chunk cimport Chunk
 from .pool cimport global_pool, Pool
 cimport cython
+from libc.string cimport memcpy
 
-# TODO consistent _ and space naming
-# TODO close api for all
+# TODO consistent function naming
+# TODO make sure there is close api for everything
 # TODO how much defensive should we on general exceptions happening ?
 # TODO document that the code is async safe but not thread safe
 # TODO text encoding per read ?
-# TODO should some of the commands (such as peek) have optional start, end ?
+# TODO should commands have an optional start index ?
 # TODO set a maximum chunk size for buffer ?
-# TODO remove exact API ?
-# TODO set maximum size for pool item
-
-# TODO new take setup _last correctly
 
 # TODO is this a good default size ?
 _DEFAULT_CHUNK_SIZE = 2048
@@ -32,9 +29,14 @@ cdef class Buffer:
         object _chunks_clear
         Py_ssize_t _chunks_length
         Py_ssize_t _length
+        Py_ssize_t _minimum_buffer_size, _current_buffer_size
+        Py_ssize_t _number_of_lower_than_expected
         Chunk _last
 
-    def __cinit__(self, Pool pool=global_pool):
+    def __cinit__(self, Py_ssize_t minimum_buffer_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
+        self._minimum_buffer_size = minimum_buffer_size
+        self._current_buffer_size = minimum_buffer_size
+        self._number_of_lower_than_expected = 0
         self._pool = pool
         chunk = deque()
         self._chunks = chunk
@@ -43,6 +45,7 @@ cdef class Buffer:
         self._chunks_clear = chunk.clear
 
     # TODO circular reference ? is this a problem ?
+    # TODO do we need __del__ to reclaim items in freelist ?
     def __dealloc__(self):
         self.close()
 
@@ -86,10 +89,12 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
-    def findbyte(self, char *byte, Py_ssize_t start=0, Py_ssize_t end=-1):
+    # TODO (cython) byte will ignore null, not good...
+    # TODO works bad, review it
+    def findbyte(self, const unsigned char [:] byte, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Chunk chunk
-            Py_ssize_t chunk_length, res_idx
+            Py_ssize_t chunk_length, res_idx, idx
 
         if start < 0 or end < -1:
             raise ValueError("Not supporting negative indexes")
@@ -121,6 +126,44 @@ cdef class Buffer:
                     return res_idx
             return -1
 
+    # make sure string is less than chunk size, then we can split in mids and lookup !
+    def find(self, const unsigned char [:] byte, Py_ssize_t start=0, Py_ssize_t end=-1):
+        cdef:
+            Py_ssize_t byte_len
+            Chunk chunk, prev_chunk
+
+        if self._chunks_length == 0:
+            return -1
+
+        byte_len = len(byte)
+        if byte_len == 1 or self._chunks_length == 1:
+            return self.findbyte(byte, start, end)
+
+        prev_chunk = None            
+        res_idx = 0
+        for chunk in self._chunks:
+            if prev_chunk:
+                print(1)
+            chunk_length = chunk.length()
+            if start >= chunk_length:
+                res_idx += chunk_length
+                start -= chunk_length
+                end -= chunk_length
+                prev_chunk = chunk
+                continue
+            if end <= 0:
+                break
+            idx = chunk.find(byte, start, end)
+            if idx == -1:
+                res_idx += chunk_length
+                start = 0
+                end -= chunk_length
+            else:
+                res_idx += idx
+                return res_idx
+            prev_chunk = chunk
+        return -1
+
     def peek(self, Py_ssize_t nbytes=-1):
         cdef:
             Buffer ret
@@ -133,13 +176,13 @@ cdef class Buffer:
             nbytes = min(nbytes, self._length)
 
         if nbytes == 0 or self._length == 0:
-            return Buffer()
+            return Buffer(self._minimum_buffer_size, self._pool)
         elif self._chunks_length == 1:
-            ret = Buffer()
+            ret = Buffer(self._minimum_buffer_size, self._pool)
             ret._add_chunk(self._last.clone_partial(nbytes))
             return ret
         else:
-            ret = Buffer()
+            ret = Buffer(self._minimum_buffer_size, self._pool)
             for chunk in self._chunks:
                 chunk_length = chunk.length()
                 if nbytes < chunk_length:
@@ -193,9 +236,9 @@ cdef class Buffer:
         self._length -= nbytes
 
         if nbytes == 0 or self._chunks_length == 0:
-            return Buffer()
+            return Buffer(self._minimum_buffer_size, self._pool)
         elif self._chunks_length == 1:
-            ret = Buffer()
+            ret = Buffer(self._minimum_buffer_size, self._pool)
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
@@ -208,7 +251,7 @@ cdef class Buffer:
                 last.consume(nbytes)
             return ret
         else:
-            ret = Buffer()
+            ret = Buffer(self._minimum_buffer_size, self._pool)
             to_remove = 0
             for chunk in self._chunks:
                 chunk_length = chunk.length()
@@ -296,9 +339,9 @@ cdef class Buffer:
             Py_ssize_t last_length, to_remove, chunk_length, ret
 
         if nbytes < 0:
-            nbytes = len(self)
+            nbytes = self._length
         else:
-            nbytes = min(nbytes, len(self))
+            nbytes = min(nbytes, self._length)
 
         self._length -= nbytes
 
@@ -344,19 +387,32 @@ cdef class Buffer:
             return ret
 
     # Write API
+    # TODO (document) we ignore sizehint for now...
     def get_buffer(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
 
-        #if sizehint == -1:
-            #sizehint = self._current_size
         if not self._last or self._last.free() == 0:
-            chunk = self._pool.get_chunk(2048)
+            chunk = self._pool.get_chunk(self._current_buffer_size)
             self._add_chunk_without_length(chunk)
             return chunk.writable()
         else:
             return self._last.writable()
 
     def buffer_written(self, Py_ssize_t nbytes):
-        self._last.written(nbytes)
+        cdef:
+            Chunk last
+            Py_ssize_t last_size
+
+        last = self._last
+        last.written(nbytes)
+        last_size = last.size()
         self._length += nbytes
+        if nbytes == last_size:
+            self._current_buffer_size <<= 1
+            self._number_of_lower_than_expected = 0
+        elif self._current_buffer_size > self._minimum_buffer_size and nbytes < (last_size >> 1):
+            self._number_of_lower_than_expected += 1
+            if self._number_of_lower_than_expected > 10:
+                self._number_of_lower_than_expected = 0
+            self._current_buffer_size >>= 1

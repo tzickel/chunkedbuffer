@@ -120,6 +120,8 @@ cdef class Buffer:
             end = self._length
 
         if self._chunks_length == 0:
+            if len_s == 0 and start == 0:
+                return 0
             return -1
         elif self._chunks_length == 1:
             return self._last.find(s, start, end)
@@ -228,7 +230,7 @@ cdef class Buffer:
         if nbytes == 0 or self._length == 0:
             return b''
         elif self._chunks_length == 1:
-            return self._last.clone_partial(nbytes).tobytes()
+            return self._last.readable_partial(nbytes).tobytes()
         else:
             ret = []
             for chunk in self._chunks:
@@ -262,10 +264,15 @@ cdef class Buffer:
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
-                ret._add_chunk(last)
-                self._chunks_clear()
-                self._chunks_length = 0
-                self._last = None
+                # We don't give it back here for optimization
+                if last.free() != 0:
+                    ret._add_chunk(last.clone())
+                    last.consume(nbytes)
+                else:
+                    ret._add_chunk(last)
+                    self._chunks_clear()
+                    self._chunks_length = 0
+                    self._last = None
             else:
                 ret._add_chunk(last.clone_partial(nbytes))
                 last.consume(nbytes)
@@ -406,8 +413,55 @@ cdef class Buffer:
 
             return ret
 
+    def take_split(self, const unsigned char [:] sep, Py_ssize_t max=-1):
+        cdef:
+            list ret
+            Py_ssize_t idx, took
+
+        ret = []
+        sep_length = len(sep)
+        took = 0
+        while True:
+            idx = self.find(sep)
+            if idx == -1 or (max >= 0 and took == max):
+                #ret.append(self.take())
+                break
+            else:
+                ret.append(self.take(idx))
+                self.skip(sep_length)
+        return ret
+
+    def take_split_bytes(self, const unsigned char [:] sep, Py_ssize_t max=-1):
+        cdef:
+            list ret
+            Py_ssize_t idx, took
+
+        ret = []
+        sep_length = len(sep)
+        took = 0
+        while True:
+            idx = self.find(sep)
+            if idx == -1 or (max >= 0 and took == max):
+                #ret.append(self.take_bytes())
+                break
+            else:
+                ret.append(self.take_bytes(idx))
+                self.skip(sep_length)
+        return ret
+
+    def debug(self):
+        cdef:
+            Chunk chunk
+            list ret
+
+        ret = []
+        for chunk in self._chunks:
+            ret.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory._reference))
+        return ret
+
     # Write API
     # TODO (document) we ignore sizehint for now...
+    # TODO check if last chunk is not writable, then take a new one!
     def get_buffer(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
@@ -436,3 +490,29 @@ cdef class Buffer:
             if self._number_of_lower_than_expected > 10:
                 self._number_of_lower_than_expected = 0
             self._current_buffer_size >>= 1
+
+    # TODO (api) allow to specify here the new_pool / minimum_size ?
+    @staticmethod
+    def merge(buffers):
+        cdef:
+            Buffer ret, buffer
+            Chunk chunk
+
+        ret = Buffer()
+        for buffer in buffers:
+            for chunk in buffer._chunks:
+                ret._add_chunk(chunk)
+        return ret
+
+    @staticmethod
+    def merge_bytes(buffers):
+        cdef:
+            list tmp
+            Buffer buffer
+            Chunk chunk
+
+        tmp = []
+        for buffer in buffers:
+            for chunk in buffer._chunks:
+                tmp.append(chunk.readable())
+        return b''.join(tmp)

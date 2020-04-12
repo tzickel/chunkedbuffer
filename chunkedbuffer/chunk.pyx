@@ -16,6 +16,7 @@ cdef extern from "string.h" nogil:
     void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
 
+# TODO future optimization, Memory can just be a malloc with the prefix being the reference count
 @cython.no_gc_clear
 @cython.final
 cdef class Memory:
@@ -38,6 +39,9 @@ cdef class Memory:
         self._reference -= 1
         if self._reference == 0:
             self._pool.return_memory(self)
+
+    def __str__(self):
+        return "<Memory ptr=%s, references=%s, pool=%s>" % (<uintptr_t>self._buffer, self._reference, self._pool)
 
 
 @cython.no_gc_clear
@@ -85,8 +89,8 @@ cdef class Chunk:
     cdef inline object readable(self):
         return PyMemoryView_FromMemory(self._memory._buffer + self._start, self._end - self._start, buffer.PyBUF_READ)
 
-    cdef inline object readable_partial(self, Py_ssize_t end):
-        return PyMemoryView_FromMemory(self._memory._buffer + self._start, end - self._start, buffer.PyBUF_READ)
+    cdef inline object readable_partial(self, Py_ssize_t length):
+        return PyMemoryView_FromMemory(self._memory._buffer + self._start, length, buffer.PyBUF_READ)
 
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes
@@ -103,9 +107,15 @@ cdef class Chunk:
         s_length = len(s)
         if s_length == 1:
             ret = <char *>memchr(self._memory._buffer + self._start + start, s[0], end)
-        else:
+        elif s_length != 0:
             # TODO is this the correct way to do this ?
             ret = <char *>memmem(self._memory._buffer + self._start + start, end, <const void *>&s[0], s_length)
+        else:
+            # TODO is this ok ?
+            if start <= end:
+                return self._start + start
+            else:
+                return -1
         if ret == NULL:
             return -1
         return <Py_ssize_t>(ret - self._memory._buffer - self._start)
@@ -117,11 +127,10 @@ cdef class Chunk:
         ret._writable = False
         return ret
 
-    cdef inline Chunk clone_partial(self, Py_ssize_t end):
-        end = min(self._start + end, self._end)
+    cdef inline Chunk clone_partial(self, Py_ssize_t length):
         ret = Chunk(self._memory)
         ret._start = self._start
-        ret._end = end
+        ret._end = self._start + length
         ret._writable = False
         return ret
 
@@ -130,3 +139,6 @@ cdef class Chunk:
 
     cdef inline uintptr_t __raw_address_end(self):
         return <uintptr_t>(self._memory._buffer + self._end)
+
+    def __str__(self):
+        return "<Chunk start=%s, end=%s, writable=%s, memory=%s>" % (self._start, self._end, self._writable, str(self._memory))

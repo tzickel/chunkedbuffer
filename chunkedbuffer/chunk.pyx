@@ -139,6 +139,7 @@ cdef class Chunk:
         memcpy(dest, self._buffer + start, length)
         return length
 
+    # TODO use buffer.PyBuffer_FillInfo
     def __getbuffer__(self, Py_buffer *buffer, int flags):
         if self._memoryview_taken > 0:
             raise BufferError("Please release previous buffer taken")

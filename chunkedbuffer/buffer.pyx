@@ -6,7 +6,7 @@ from .chunk cimport Chunk
 from .pool cimport global_pool, Pool
 cimport cython
 from libc.string cimport memcpy
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
+# TODO this is bad, remove it and use a proper pointer arithemetic cast
 from libc.stdint cimport uintptr_t
 # TODO nogil ? really ?
 cdef extern from "string.h" nogil:
@@ -17,7 +17,10 @@ cdef extern from "alloca.h":
     void *alloca(size_t size)
 
 from cpython cimport buffer, Py_buffer
+from cpython.buffer cimport PyBuffer_FillInfo
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
+
+from .bytearraywrapper import ByteArrayWrapper
 
 # TODO consistent function naming
 # TODO make sure there is close api for everything
@@ -47,6 +50,9 @@ cdef class Buffer:
         Py_ssize_t _minimum_buffer_size, _current_buffer_size
         Py_ssize_t _number_of_lower_than_expected
         Chunk _last
+        bytes _compacted
+        Py_ssize_t _memoryview_taken
+        object _bytearraywrapper
 
     # TODO maybe call buffer inside, get_chunk, and minimum_chunk_size
     def __cinit__(self, Py_ssize_t minimum_buffer_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
@@ -60,6 +66,9 @@ cdef class Buffer:
         self._chunks_append = chunk.append
         self._chunks_popleft = chunk.popleft
         self._chunks_clear = chunk.clear
+        self._compacted = None
+        self._memoryview_taken = 0
+        self._bytearraywrapper = ByteArrayWrapper()
 
     # TODO (cython) is there a circular reference here ? If so so I need no_gc_clear ?
     # TODO (cython) is this still called using the freelist or do we need to put this in __del__ ?
@@ -78,6 +87,7 @@ cdef class Buffer:
             # TODO (cython) can you be Chunk or None more optimized ?
             self._last = None
             self._pool = None
+            self._compacted = None
 
     cdef inline void close(self):
         cdef:
@@ -94,23 +104,16 @@ cdef class Buffer:
             # TODO (cython) can you be Chunk or None more optimized ?
             self._last = None
             self._pool = None
+            self._compacted = None
 
-    # TODO (api) should we add __bytes__ as well ?
-    def bytes(self):
+    cdef _compact(self):
         cdef:
             Chunk chunk
-            bytes ret
             char *buf
             Py_ssize_t length
+            bytes ret
 
-        if self._chunks_length == 1:
-            ret = PyBytes_FromStringAndSize(NULL, self._length)
-            if ret:
-                self._last.memcpy(PyBytes_AS_STRING(ret), 0, self._length)
-            return ret
-        elif self._chunks_length == 0:
-            return b''
-        else:
+        if self._chunks_length > 1:
             ret = PyBytes_FromStringAndSize(NULL, self._length)
             if ret:
                 buf = PyBytes_AS_STRING(ret)
@@ -118,7 +121,28 @@ cdef class Buffer:
                     length = chunk.length()
                     chunk.memcpy(buf, 0, length)
                     buf += length
-            return ret
+                    chunk.close()
+                self._chunks_clear()
+                self._chunks_length = -1
+                self._last = None
+                self._compacted = ret
+
+    def __getbuffer__(self, Py_buffer *buffer, int flags):
+        if self._chunks_length > 1:
+            self._compact()
+        if self._chunks_length == 1:
+            # TODO handle error properly
+            self._memoryview_taken += 1
+            PyBuffer_FillInfo(buffer, self, <void *>(self._last._buffer + self._last._start), self._length, 1, flags)
+        elif self._chunks_length == 0:
+            raise NotImplementedError()
+        else:
+            # TODO handle error properly
+            self._memoryview_taken += 1
+            PyBuffer_FillInfo(buffer, self, <void *>(self._last._buffer + self._last._start), self._length, 1, flags)
+
+    def __releasebuffer__(self, Py_buffer *buffer):
+        self._memoryview_taken -= 1
 
     def __len__(self):
         return self._length
@@ -449,41 +473,7 @@ cdef class Buffer:
 
             return ret
 
-    def take_split(self, const unsigned char [:] sep, Py_ssize_t max=-1):
-        cdef:
-            list ret
-            Py_ssize_t idx, took
-
-        ret = []
-        sep_length = len(sep)
-        took = 0
-        while True:
-            idx = self.find(sep)
-            if idx == -1 or (max >= 0 and took == max):
-                break
-            else:
-                ret.append(self.take(idx))
-                self.skip(sep_length)
-        return ret
-
-    def take_split_bytes(self, const unsigned char [:] sep, Py_ssize_t max=-1):
-        cdef:
-            list ret
-            Py_ssize_t idx, took
-
-        ret = []
-        sep_length = len(sep)
-        took = 0
-        while True:
-            idx = self.find(sep)
-            if idx == -1 or (max >= 0 and took == max):
-                break
-            else:
-                ret.append(self.take_bytes(idx))
-                self.skip(sep_length)
-        return ret
-
-    def debug(self):
+    def _debug(self):
         cdef:
             Chunk chunk
             list ret
@@ -496,7 +486,7 @@ cdef class Buffer:
     # Write API
     # TODO (document) we ignore sizehint for now...
     # TODO check if last chunk is not writable, then take a new one!
-    def get_buffer(self, Py_ssize_t sizehint=-1):
+    def get_chunk(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
 
@@ -507,7 +497,7 @@ cdef class Buffer:
         else:
             return self._last
 
-    def buffer_written(self, Py_ssize_t nbytes):
+    def chunk_written(self, Py_ssize_t nbytes):
         cdef:
             Chunk last
             Py_ssize_t last_size
@@ -526,7 +516,7 @@ cdef class Buffer:
             self._current_buffer_size >>= 1
 
     # TODO we can optimize here to skip the memoryview at all
-    def extend(self, const unsigned char [:] data):
+    def __iadd__(self, const unsigned char [:] data):
         cdef:
             Chunk chunk
             Py_ssize_t size, leftover, start
@@ -535,14 +525,15 @@ cdef class Buffer:
         leftover = len(data)
         start = 0
         while leftover:
-            chunk = self.get_buffer()
+            chunk = self.get_chunk()
             buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE)
             size = min(buf.len, leftover)
             memcpy(buf.buf, <const void *>&data[0] + start, size)
             buffer.PyBuffer_Release(&buf)
-            self.buffer_written(size)
+            self.chunk_written(size)
             leftover -= size
             start += size
+        return self
 
     # TODO (api) allow to specify here the new_pool / minimum_size ?
     @staticmethod
@@ -557,15 +548,8 @@ cdef class Buffer:
                 ret._add_chunk(chunk.clone())
         return ret
 
-    @staticmethod
-    def merge_bytes(buffers):
-        cdef:
-            list tmp
-            Buffer buffer
-            Chunk chunk
+    def split(self, *args, **kwargs):
+        return self._bytearraywrapper._resolve(self, 'split', *args, **kwargs)
 
-        tmp = []
-        for buffer in buffers:
-            for chunk in buffer._chunks:
-                tmp.append(chunk.readable())
-        return b''.join(tmp)
+    def __eq__(self, other):
+        return self._bytearraywrapper._resolve(self, '__eq__', other)

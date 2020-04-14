@@ -1,5 +1,4 @@
 from .pool cimport Pool
-from libc.stdint cimport uintptr_t
 
 
 cdef class Memory:
@@ -13,17 +12,18 @@ cdef class Memory:
     cdef inline void decrease(self)
 
 
-# TODO (cython) will is be faster to make the * args as non * ?
 cdef class Chunk:
     cdef:
         Memory _memory
-        Py_ssize_t _start, _end
+        public Py_ssize_t size
+        Py_ssize_t _start, _end, _memoryview_taken
         bint _writable
+        char *_buffer
+        Py_ssize_t _shape[1]
+        Py_ssize_t _strides[1]
 
     cdef inline void close(self)
-    cdef inline object writable(self)
     cdef inline void written(self, Py_ssize_t nbytes)
-    cdef inline Py_ssize_t size(self)
     cdef inline Py_ssize_t free(self)
     cdef inline Py_ssize_t length(self)
     cdef inline object readable(self)
@@ -32,5 +32,4 @@ cdef class Chunk:
     cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1)
     cdef inline Chunk clone(self)
     cdef inline Chunk clone_partial(self, Py_ssize_t length)
-    cdef inline uintptr_t __raw_address_start(self)
-    cdef inline uintptr_t __raw_address_end(self)
+    cdef inline Py_ssize_t memcpy(self, void *dest, Py_ssize_t start, Py_ssize_t length)

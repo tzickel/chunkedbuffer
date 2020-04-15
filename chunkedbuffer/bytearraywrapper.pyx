@@ -8,31 +8,22 @@ cdef extern from "Python.h":
         char *ob_start
 
 
-# If you have a better idea on how to expose stringlib, feel free to open an issue...
-cdef class ByteArrayWrapper:
-    cdef:
-        bytearray tmp_bytearray
-        char *orig_ptr
-        char *real_memory
-        size_t real_length
+# TODO if you plan on using this, do not allow for modifing commands to be run on it.
+cdef class ByteArrayWrapper(bytearray):
+    def __dealloc__(self):
+        (<PyVarObject *>self).ob_size = 0
+        (<PyByteArrayObject *>self).ob_alloc = 0
+        (<PyByteArrayObject *>self).ob_bytes = NULL
+        (<PyByteArrayObject *>self).ob_start = NULL
 
-    def __cinit__(self):
-        self.tmp_bytearray = bytearray(b'tmp_bytearray')
-        self.orig_ptr = (<PyByteArrayObject *>self.tmp_bytearray).ob_bytes
+    cdef void _unsafe_set_memory_from_buffer(self, const unsigned char [::1] data):
+        (<PyVarObject *>self).ob_size = len(data)
+        (<PyByteArrayObject *>self).ob_alloc = len(data)
+        (<PyByteArrayObject *>self).ob_bytes = <char *>&data[0]
+        (<PyByteArrayObject *>self).ob_start = <char *>&data[0]
 
-    def _resolve(self, const unsigned char [::1] data, str attr, *args, **kwargs):
-        # While we do ob_alloc == ob_size, this shouldn't matter since all stringlib functionality uses ob_size
-        (<PyVarObject *>self.tmp_bytearray).ob_size = len(data)
-        (<PyByteArrayObject *>self.tmp_bytearray).ob_alloc = len(data)
-        (<PyByteArrayObject *>self.tmp_bytearray).ob_bytes = <char *>&data[0]
-        (<PyByteArrayObject *>self.tmp_bytearray).ob_start = <char *>&data[0]
-        try:
-            return getattr(self.tmp_bytearray, attr)(*args, **kwargs)
-        finally:
-            (<PyVarObject *>self.tmp_bytearray).ob_size = 13
-            (<PyByteArrayObject *>self.tmp_bytearray).ob_alloc = 14
-            (<PyByteArrayObject *>self.tmp_bytearray).ob_bytes = self.orig_ptr
-            (<PyByteArrayObject *>self.tmp_bytearray).ob_start = self.orig_ptr
-
-    def equals(self, first, second):
-        return self._resolve(first, '__eq__', second)
+    cdef void _unsafe_set_memory_from_pointer(self, char *ptr, Py_ssize_t length):
+        (<PyVarObject *>self).ob_size = length
+        (<PyByteArrayObject *>self).ob_alloc = length
+        (<PyByteArrayObject *>self).ob_bytes = ptr
+        (<PyByteArrayObject *>self).ob_start = ptr

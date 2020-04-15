@@ -4,7 +4,7 @@ from .pool cimport Pool
 cdef class Memory:
     cdef:
         public Py_ssize_t size
-        Py_ssize_t _reference
+        public Py_ssize_t reference
         char *_buffer
         Pool _pool
 

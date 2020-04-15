@@ -26,18 +26,19 @@ cdef class Memory:
         if self._buffer is NULL:
             raise MemoryError()
         self._pool = pool
-        self._reference = 0
+        self.reference = 0
 
     def __dealloc__(self):
         if self._buffer is not NULL:
             free(self._buffer)
 
     cdef inline void increase(self):
-        self._reference += 1
+        self.reference += 1
 
     cdef inline void decrease(self):
-        self._reference -= 1
-        if self._reference == 0:
+        self.reference -= 1
+        # TODO ref counting should take care, but if no pool, we can just free the memory now.
+        if self.reference == 0 and self._pool:
             self._pool.return_memory(self)
 
 

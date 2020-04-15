@@ -111,8 +111,8 @@ cdef class Buffer:
 
         # TODO maybe for small chunks we can use PyMem_Malloc...
         if self._chunks_length > 1:
-            # TODO should we put it in the pool (it's size may be too wonky)
-            memory = Memory(self._length)
+            # TODO should we put it in the pool (it's size may be too wonky, we can ofcourse take a larger portion and limit it)
+            memory = Memory(self._length, None)
             new_chunk = Chunk(memory)
             buf = memory._buffer
             for chunk in self._chunks:
@@ -155,7 +155,7 @@ cdef class Buffer:
 
     # Read API
     # TODO (fix this to work properly) also benchmark if it's better to use bytearray's find instead (then it will be portable instead of memmem as well)
-    def find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
+    def find(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Chunk chunk, prev_chunk
             Py_ssize_t chunk_length, prev_chunk_length, res_idx, idx, len_s
@@ -307,7 +307,7 @@ cdef class Buffer:
                 last.consume(nbytes)
             return ret
         else:
-            ret = Buffer(self._minimum_buffer_size, self._pool)
+            ret = Buffer()
             to_remove = 0
             for chunk in self._chunks:
                 chunk_length = chunk.length()
@@ -390,17 +390,17 @@ cdef class Buffer:
     def _debug(self):
         cdef:
             Chunk chunk
-            list ret
+            list chunks
+            dict ret
 
-        ret = []
+        chunks = []
         for chunk in self._chunks:
-            ret.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.reference))
+            chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.reference))
+        ret = {'chunks': chunks, 'current_chunk_size': self._current_buffer_size}
         return ret
 
     # Write API
     # TODO (document) we ignore sizehint for now...
-    # TODO check if last chunk is not writable, then take a new one!
-    # don't allow get_chunk if this ia a view or compatd already ....
     cpdef Chunk get_chunk(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
@@ -417,10 +417,12 @@ cdef class Buffer:
             elif chunk.free() != 0:
                 can_reuse = True
     
-        if can_reuse:
+        # The chunk will be writable as long as we created it (and this is not a subview)
+        if can_reuse and chunk._writable:
             return chunk
         else:
             chunk = self._pool.get_chunk(self._current_buffer_size)
+            #self._number_of_lower_than_expected = 0
             self._add_chunk_without_length(chunk)
             return chunk
 
@@ -440,7 +442,7 @@ cdef class Buffer:
             self._number_of_lower_than_expected += 1
             if self._number_of_lower_than_expected > 10:
                 self._number_of_lower_than_expected = 0
-            self._current_buffer_size >>= 1
+                self._current_buffer_size >>= 1
 
     def extend(self, const unsigned char [::1] data):
         cdef:
@@ -452,7 +454,7 @@ cdef class Buffer:
         start = 0
         while leftover:
             chunk = self.get_chunk()
-            # TODO handle error ?
+            # TODO refactor this to memcpy other side ?
             buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE | buffer.PyBUF_C_CONTIGUOUS)
             size = min(buf.len, leftover)
             memcpy(buf.buf, <const void *>&data[0] + start, size)
@@ -470,7 +472,6 @@ cdef class Buffer:
 
         ret = Buffer()
         for buffer in buffers:
-            # TODO handle compressed chunks...
             for chunk in buffer._chunks:
                 ret._add_chunk(chunk.clone())
         return ret
@@ -487,6 +488,11 @@ cdef class Buffer:
         self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
         return self._bytearraywrapper.__eq__(other)
 
+    # TODO (api) which stringlib commands to support?
     def split(self, sep=None, maxsplit=-1):
         self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
         return self._bytearraywrapper.split(sep, maxsplit)
+
+    def strip(self, bytes=None):
+        self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
+        return self._bytearraywrapper.strip(bytes)

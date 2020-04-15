@@ -66,10 +66,11 @@ cdef class Chunk:
             self._memory.decrease()
             self._memory = None
 
-    cdef inline void written(self, Py_ssize_t nbytes):
-        if nbytes < 0:
-            return
-        self._end += min(nbytes, self.size - self._end)
+    cdef inline bint written(self, Py_ssize_t nbytes) except 0:
+        if nbytes < 0 or nbytes > (self.size - self._end):
+            raise ValueError('Tried to write an invalid length %d' % nbytes)
+        self._end += nbytes
+        return 1
 
     cdef inline Py_ssize_t free(self):
         return self.size - self._end
@@ -90,7 +91,7 @@ cdef class Chunk:
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes
 
-    cdef inline Py_ssize_t find(self, const unsigned char [:] s, Py_ssize_t start=0, Py_ssize_t end=-1):
+    cdef inline Py_ssize_t find(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             char *ret
             Py_ssize_t s_length

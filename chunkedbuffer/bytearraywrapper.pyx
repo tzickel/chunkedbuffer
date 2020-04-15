@@ -1,3 +1,4 @@
+# This works with Python 3 defintion only (ob_start) altough a Python 2 compatible version can be done.
 cdef extern from "Python.h":
     ctypedef struct PyVarObject:
         Py_ssize_t ob_size
@@ -15,12 +16,6 @@ cdef class ByteArrayWrapper(bytearray):
         (<PyByteArrayObject *>self).ob_alloc = 0
         (<PyByteArrayObject *>self).ob_bytes = NULL
         (<PyByteArrayObject *>self).ob_start = NULL
-
-    cdef void _unsafe_set_memory_from_buffer(self, const unsigned char [::1] data):
-        (<PyVarObject *>self).ob_size = len(data)
-        (<PyByteArrayObject *>self).ob_alloc = len(data)
-        (<PyByteArrayObject *>self).ob_bytes = <char *>&data[0]
-        (<PyByteArrayObject *>self).ob_start = <char *>&data[0]
 
     cdef void _unsafe_set_memory_from_pointer(self, char *ptr, Py_ssize_t length):
         (<PyVarObject *>self).ob_size = length

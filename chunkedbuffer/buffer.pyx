@@ -3,45 +3,36 @@
 
 include "consts.pxi"
 
+cimport cython
+
+# TODO (speed) we can initilize it only when Buffer has multiple chunks
 from collections import deque
 from .chunk cimport Chunk, Memory
 from .pool cimport global_pool, Pool
-cimport cython
+from .bytearraywrapper cimport ByteArrayWrapper
 from libc.string cimport memcpy, memcmp
 # TODO this is bad, remove it and use a proper pointer arithemetic cast
 from libc.stdint cimport uintptr_t
 # TODO nogil ? really ?
 cdef extern from "string.h" nogil:
-    # TODO (cython) what to do on platforms where this does not exist....
+    # TODO (windows) we can use bytearray.find instead of this (do benchmark between them)
     void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
 cdef extern from "alloca.h":
     void *alloca(size_t size)
 
-from cpython.object cimport Py_LT, Py_EQ, Py_GT, Py_LE, Py_NE, Py_GE
-
-#from cpython cimport PyObject
-#cdef extern from "Python.h":
-#    PyObject *Py_RETURN_RICHCOMPARE(int, int, int)
-
 from cpython cimport buffer, Py_buffer
 from cpython.buffer cimport PyBuffer_FillInfo
-from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
+from cpython.bytes cimport PyBytes_AS_STRING
 
-from .bytearraywrapper cimport ByteArrayWrapper
 
-# TODO consistent function naming
 # TODO make sure there is close api for everything
-# TODO how much defensive should we on general exceptions happening ?
+# TODO how much defensive should we on general exceptions happening?
 # TODO document that the code is async safe but not thread safe
 # TODO text encoding per read ?
-# TODO should commands have an optional start index ?
+# TODO (api) should commands have an optional start index ?
 # TODO set a maximum chunk size for buffer ?
 # TODO have api to get the chunks buffer sfor stuff like writev !
-
-
-# TODO is this a good default size ?
-#_DEFAULT_CHUNK_SIZE = 2048
 
 
 # TODO any other way to return a zero length bytes ?
@@ -50,7 +41,6 @@ cdef bytes _empty_byte = bytes(b'')
 
 @cython.no_gc_clear
 @cython.final
-# TODO (cython) what is a good value to put here ?
 @cython.freelist(_FREELIST_SIZE)
 cdef class Buffer:
     cdef:
@@ -61,17 +51,15 @@ cdef class Buffer:
         object _chunks_clear
         Py_ssize_t _chunks_length
         Py_ssize_t _length
-        Py_ssize_t _minimum_buffer_size, _current_buffer_size
+        Py_ssize_t _minimum_chunk_size, _current_chunk_size
         Py_ssize_t _number_of_lower_than_expected
         Chunk _last
-        Py_ssize_t _memoryview_taken
         ByteArrayWrapper _bytearraywrapper
         bint _release_fast_to_pool
 
-    # TODO maybe call buffer inside, get_chunk, and minimum_chunk_size
-    def __cinit__(self, release_fast_to_pool=False, Py_ssize_t minimum_buffer_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
-        self._minimum_buffer_size = minimum_buffer_size
-        self._current_buffer_size = minimum_buffer_size
+    def __cinit__(self, release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
+        self._minimum_chunk_size = minimum_chunk_size
+        self._current_chunk_size = minimum_chunk_size
         self._number_of_lower_than_expected = 0
         self._pool = pool
         chunk = deque()
@@ -80,7 +68,6 @@ cdef class Buffer:
         self._chunks_append = chunk.append
         self._chunks_popleft = chunk.popleft
         self._chunks_clear = chunk.clear
-        self._memoryview_taken = 0
         self._bytearraywrapper = ByteArrayWrapper()
         self._release_fast_to_pool = release_fast_to_pool
 
@@ -133,13 +120,9 @@ cdef class Buffer:
         if self._chunks_length > 1:
             self._compact()
         if self._chunks_length == 1:
-            self._memoryview_taken += 1
             PyBuffer_FillInfo(buffer, self, <void *>(self._last._buffer + self._last._start), self._length, 1, flags)
         elif self._chunks_length == 0:
             PyBuffer_FillInfo(buffer, self, <void *>PyBytes_AS_STRING(_empty_byte), 0, 1, flags)
-
-    #def __releasebuffer__(self, Py_buffer *buffer):
-        #self._memoryview_taken -= 1
 
     def __len__(self):
         return self._length
@@ -398,7 +381,7 @@ cdef class Buffer:
         chunks = []
         for chunk in self._chunks:
             chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.reference))
-        ret = {'chunks': chunks, 'current_chunk_size': self._current_buffer_size}
+        ret = {'chunks': chunks, 'current_chunk_size': self._current_chunk_size}
         return ret
 
     # Write API
@@ -423,7 +406,7 @@ cdef class Buffer:
         if can_reuse and chunk._writable:
             return chunk
         else:
-            chunk = self._pool.get_chunk(self._current_buffer_size)
+            chunk = self._pool.get_chunk(self._current_chunk_size)
             #self._number_of_lower_than_expected = 0
             self._add_chunk_without_length(chunk)
             return chunk
@@ -438,13 +421,13 @@ cdef class Buffer:
         last_size = last.size
         self._length += nbytes
         if nbytes == last_size:
-            self._current_buffer_size <<= 1
+            self._current_chunk_size <<= 1
             self._number_of_lower_than_expected = 0
-        elif self._current_buffer_size > self._minimum_buffer_size and nbytes < (last_size >> 1):
+        elif self._current_chunk_size > self._minimum_chunk_size and nbytes < (last_size >> 1):
             self._number_of_lower_than_expected += 1
             if self._number_of_lower_than_expected > 10:
                 self._number_of_lower_than_expected = 0
-                self._current_buffer_size >>= 1
+                self._current_chunk_size >>= 1
 
     def extend(self, const unsigned char [::1] data):
         cdef:

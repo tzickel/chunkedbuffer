@@ -1,5 +1,6 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
+# cython: language_level=3
+#, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
 include "consts.pxi"
 

@@ -1,5 +1,6 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
+# cython: language_level=3
+#, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
 include "consts.pxi"
 
@@ -39,6 +40,7 @@ from cpython.bytes cimport PyBytes_AS_STRING
 cdef bytes _empty_byte = bytes(b'')
 
 
+# TODO (cython) is there a circular reference here ? If so so I need no_gc_clear ?
 @cython.no_gc_clear
 @cython.final
 @cython.freelist(_FREELIST_SIZE)
@@ -60,37 +62,10 @@ cdef class Buffer:
     def __cinit__(self, release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
         self._minimum_chunk_size = minimum_chunk_size
         self._current_chunk_size = minimum_chunk_size
-        self._number_of_lower_than_expected = 0
         self._pool = pool
-        chunk = deque()
-        # TODO (cython) do I need to hold this refernece at all ?
-        self._chunks = chunk
-        self._chunks_append = chunk.append
-        self._chunks_popleft = chunk.popleft
-        self._chunks_clear = chunk.clear
-        self._bytearraywrapper = ByteArrayWrapper()
         self._release_fast_to_pool = release_fast_to_pool
 
-    # TODO (cython) is there a circular reference here ? If so so I need no_gc_clear ?
-    # TODO (cython) is this still called using the freelist or do we need to put this in __del__ ?
-    def __dealloc__(self):
-        cdef:
-            Chunk chunk
-
-        if self._chunks is not None:
-            for chunk in self._chunks:
-                chunk.close()
-            self._chunks_clear()
-            self._chunks = None
-            self._chunks_append = None
-            self._chunks_popleft = None
-            self._chunks_clear = None
-            # TODO (cython) can you be Chunk or None more optimized ?
-            self._last = None
-            self._pool = None
-            self._bytearraywrapper = None
-
-    # TODO add counters for how much compact has been done
+    # TODO (misc) add counters for how much compact has been done
     cdef void _compact(self):
         cdef:
             Memory memory
@@ -128,12 +103,26 @@ cdef class Buffer:
         return self._length
 
     cdef inline void _add_chunk(self, Chunk chunk):
+        if self._chunks.length == 1 and self._chunks is None:
+            chunks = deque()
+            self._chunks = chunk
+            self._chunks_append = chunk.append
+            self._chunks_popleft = chunk.popleft
+            self._chunks_clear = chunk.clear
+
         self._chunks_append(chunk)
         self._chunks_length += 1
         self._length += chunk.length()
         self._last = chunk
 
     cdef inline void _add_chunk_without_length(self, Chunk chunk):
+        if self._chunks.length == 1 and self._chunks is None:
+            chunks = deque()
+            self._chunks = chunk
+            self._chunks_append = chunk.append
+            self._chunks_popleft = chunk.popleft
+            self._chunks_clear = chunk.clear
+
         self._chunks_append(chunk)
         self._chunks_length += 1
         self._last = chunk
@@ -159,6 +148,7 @@ cdef class Buffer:
                 return 0
             return -1
         elif self._chunks_length == 1:
+            #return self.bytearraywrapper().find(s, start, end)
             return self._last.find(s, start, end)
         else:
             if len_s == 1:
@@ -461,23 +451,32 @@ cdef class Buffer:
                 ret._add_chunk(chunk.clone())
         return ret
 
-    cdef char *_unsafe_get_my_pointer(self):
+    cdef inline char *_unsafe_get_my_pointer(self):
         self._compact()
         if self._chunks_length == 1:
             return self._last._buffer + self._last._start
         elif self._chunks_length == 0:
             return PyBytes_AS_STRING(_empty_byte)
 
+    cdef inline bytearraywrapper(self):
+        cdef:
+            ByteArrayWrapper baw
+
+        if self._bytearraywrapper is None:
+            baw = ByteArrayWrapper()
+            self._bytearraywrapper = baw
+        else:
+            baw = self._bytearraywrapper
+        baw._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
+        return baw
+
     # TODO (api) do we want to support all other comparisons as well ?
     def __eq__(self, other):
-        self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
-        return self._bytearraywrapper.__eq__(other)
+        return self.bytearraywrapper().__eq__(other)
 
     # TODO (api) which stringlib commands to support?
     def split(self, sep=None, maxsplit=-1):
-        self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
-        return self._bytearraywrapper.split(sep, maxsplit)
+        return self.bytearraywrapper().split(sep, maxsplit)
 
     def strip(self, bytes=None):
-        self._bytearraywrapper._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
-        return self._bytearraywrapper.strip(bytes)
+        return self.bytearraywrapper().strip(bytes)

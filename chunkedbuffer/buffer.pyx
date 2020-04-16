@@ -1,6 +1,5 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
-# cython: language_level=3
-#, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
 include "consts.pxi"
 
@@ -59,7 +58,8 @@ cdef class Buffer:
         ByteArrayWrapper _bytearraywrapper
         bint _release_fast_to_pool
 
-    def __cinit__(self, release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
+    # There is allot of lazy initilization of stuff because this class needs to be fast for the common usecase.
+    def __cinit__(self, bint release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
         self._minimum_chunk_size = minimum_chunk_size
         self._current_chunk_size = minimum_chunk_size
         self._pool = pool
@@ -102,28 +102,30 @@ cdef class Buffer:
     def __len__(self):
         return self._length
 
-    cdef inline void _add_chunk(self, Chunk chunk):
-        if self._chunks.length == 1 and self._chunks is None:
-            chunks = deque()
+    cdef inline bint _initialize_chunks(self):
+        if self._chunks_length == 1 and self._chunks is None:
+            # TODO (cython) can this fail ? do we need except ?
+            chunk = deque()
             self._chunks = chunk
             self._chunks_append = chunk.append
             self._chunks_popleft = chunk.popleft
             self._chunks_clear = chunk.clear
+            if self._last:
+                self._chunks_append(self._last)
+        return True
 
-        self._chunks_append(chunk)
+    cdef inline void _add_chunk(self, Chunk chunk):
+        self._initialize_chunks()
+        if self._chunks is not None:
+            self._chunks_append(chunk)
         self._chunks_length += 1
         self._length += chunk.length()
         self._last = chunk
 
     cdef inline void _add_chunk_without_length(self, Chunk chunk):
-        if self._chunks.length == 1 and self._chunks is None:
-            chunks = deque()
-            self._chunks = chunk
-            self._chunks_append = chunk.append
-            self._chunks_popleft = chunk.popleft
-            self._chunks_clear = chunk.clear
-
-        self._chunks_append(chunk)
+        self._initialize_chunks()
+        if self._chunks is not None:
+            self._chunks_append(chunk)
         self._chunks_length += 1
         self._last = chunk
 
@@ -265,7 +267,8 @@ cdef class Buffer:
                 # TODO add it to the multi chunk part as well
                 # We don't give it back here for optimization
                 """ret._add_chunk(last)
-                self._chunks_clear()
+                if self._chunks is not None:
+                    self._chunks_clear()
                 self._chunks_length = 0
                 self._last = None"""
                 # Is there any better place for optimization ere?
@@ -274,7 +277,8 @@ cdef class Buffer:
                     last.consume(nbytes)
                 else:
                     ret._add_chunk(last)
-                    self._chunks_clear()
+                    if self._chunks is not None:
+                        self._chunks_clear()
                     self._chunks_length = 0
                     self._last = None
             else:
@@ -327,7 +331,8 @@ cdef class Buffer:
             last = self._last
             last_length = last.length()
             if nbytes == last_length:
-                self._chunks_clear()
+                if self._chunks is not None:
+                    self._chunks_clear()
                 self._chunks_length = 0
                 last.close()
                 self._last = None
@@ -369,7 +374,12 @@ cdef class Buffer:
             dict ret
 
         chunks = []
-        for chunk in self._chunks:
+        chunksiter = []
+        if self._chunks_length == 1:
+            chunksiter = [self._last]
+        elif self._chunks_length > 1:
+            chunksiter = self._chunks
+        for chunk in chunksiter:
             chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.reference))
         ret = {'chunks': chunks, 'current_chunk_size': self._current_chunk_size}
         return ret
@@ -447,18 +457,22 @@ cdef class Buffer:
 
         ret = Buffer()
         for buffer in buffers:
-            for chunk in buffer._chunks:
-                ret._add_chunk(chunk.clone())
+            if buffer._chunks_length == 1:
+                ret._add_chunk(buffer._last.clone())
+            elif buffer._chunks_length > 1:
+                for chunk in buffer._chunks:
+                    ret._add_chunk(chunk.clone())
         return ret
 
     cdef inline char *_unsafe_get_my_pointer(self):
-        self._compact()
+        if self._chunks_length > 1:
+            self._compact()
         if self._chunks_length == 1:
             return self._last._buffer + self._last._start
         elif self._chunks_length == 0:
             return PyBytes_AS_STRING(_empty_byte)
 
-    cdef inline bytearraywrapper(self):
+    cdef inline ByteArrayWrapper bytearraywrapper(self):
         cdef:
             ByteArrayWrapper baw
 

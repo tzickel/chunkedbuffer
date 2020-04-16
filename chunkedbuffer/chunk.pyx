@@ -1,6 +1,5 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
-# cython: language_level=3
-#, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
 include "consts.pxi"
 
@@ -41,7 +40,7 @@ cdef class Memory:
     cdef inline void decrease(self):
         self.reference -= 1
         # TODO ref counting should take care, but if no pool, we can just free the memory now.
-        if self.reference == 0 and self._pool:
+        if self.reference == 0 and self._pool is not None:
             self._pool.return_memory(self)
 
 
@@ -120,6 +119,9 @@ cdef class Chunk:
         return <Py_ssize_t>(ret - self._buffer - self._start)
 
     cdef inline Chunk clone(self):
+        cdef:
+            Chunk ret
+
         ret = Chunk(self._memory)
         ret._start = self._start
         ret._end = self._end
@@ -127,6 +129,9 @@ cdef class Chunk:
         return ret
 
     cdef inline Chunk clone_partial(self, Py_ssize_t length):
+        cdef:
+            Chunk ret
+
         ret = Chunk(self._memory)
         ret._start = self._start
         ret._end = self._start + length

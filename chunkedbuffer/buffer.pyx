@@ -379,7 +379,7 @@ cdef class Buffer:
         elif self._chunks_length > 1:
             chunksiter = self._chunks
         for chunk in chunksiter:
-            chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.reference))
+            chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.size, chunk._memory.reference))
         ret = {'chunks': chunks, 'current_chunk_size': self._current_chunk_size}
         return ret
 
@@ -410,6 +410,7 @@ cdef class Buffer:
             self._add_chunk_without_length(chunk)
             return chunk
 
+    # TODO (safety) make sure that get_chunk was called !
     cpdef void chunk_written(self, Py_ssize_t nbytes):
         cdef:
             Chunk last
@@ -430,24 +431,30 @@ cdef class Buffer:
                 self._number_of_lower_than_expected = 0
                 self._current_chunk_size >>= 1
 
-    def extend(self, const unsigned char [::1] data):
+    def extend(self, data):
         cdef:
             Chunk chunk
             Py_ssize_t size, leftover, start
-            Py_buffer buf            
+            Py_buffer buf, buf_data
 
-        leftover = len(data)
-        start = 0
-        while leftover:
-            chunk = self.get_chunk()
-            # TODO refactor this to memcpy other side ?
-            buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE | buffer.PyBUF_C_CONTIGUOUS)
-            size = min(buf.len, leftover)
-            memcpy(buf.buf, <const void *>&data[0] + start, size)
-            buffer.PyBuffer_Release(&buf)
-            self.chunk_written(size)
-            leftover -= size
-            start += size
+        # TODO do I need to ask for buffer.PyBUF_C_CONTIGUOUS
+        buffer.PyObject_GetBuffer(data, &buf_data, buffer.PyBUF_SIMPLE)
+        # TODO this is annoying, but my only way around this is to bypass the except -1 in PyObject_GetBuffer defintion and handle it myself...
+        try:
+            leftover = buf_data.len
+            start = 0
+            while leftover:
+                chunk = self.get_chunk()
+                # TODO refactor this to memcpy other side ?
+                buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE | buffer.PyBUF_C_CONTIGUOUS)
+                size = min(buf.len, leftover)
+                memcpy(buf.buf, <const void *>&buf_data.buf[0] + start, size)
+                buffer.PyBuffer_Release(&buf)
+                self.chunk_written(size)
+                leftover -= size
+                start += size
+        finally:
+            buffer.PyBuffer_Release(&buf_data)
 
     # TODO (api) allow to specify here the new_pool / minimum_size ?
     @staticmethod

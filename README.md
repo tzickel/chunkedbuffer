@@ -55,55 +55,54 @@ if __name__ == "__main__":
 
 ## API
 ```python
-# pool, by default a global memory Pool for the chunks
-Pipe(pool=None)
+Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Write API
 
     # Must be called each time data is ready to be written
-    # The returned buffer will hold space for atleast sizehint (unless it's -1, which it will have space for atleast 1 byte)
-    get_buffer(sizehint=-1)
-    # Must be called after each get_buffer and data that's written with the number of bytes written
-    buffer_written(nbytes)
-    # Needs to be called after the stream is closed
-    eof(exception=None)
+    # The returned chunk will have space for 1 or more bytes of data (currently sizehint is ignored, see minimum_chunk_size in constructor)
+    # Zero amortized memory allocation (when using the default pool)
+    get_chunk(sizehint=-1)
+    # Must be called after each get_chunk and data that's written with the number of bytes written
+    chunk_written(nbytes)
+
+    # Can be used as an alternative if you already have the data you want to add to the buffer
+    # Zero amortized memory allocation (when using the default pool)
+    extend(data)
+
+    # Takes multiple Buffers and merges them into one
+    # Zero memory copy
+    @staticmethod
+    merge(buffers)
 
     # Read API
-    read(nbytes=-1)
-    readexact(nbytes)
-    readuntil(seperator, skip_seperator=False)
 
-    findbyte(byte, start=0, end=None)
-    find(s, start=0, end=None)
-
-    peek(nbytes=-1)
-    peakexact(nbytes)
-
-    skip(nbytes=-1)
-    skipexact(nbytes)
-
+    # Returns a read-only buffer view of the contents
+    # Zero memory copy if data is in one chunk, or a one-time memory copy if not
+    __getbuffer__()
+    # Returns the length
+    # Precomputed
     __len__()
-    reached_eof()
-    closed()
+    # Finds the index (-1 if did not find) of s inside start, end indicies in the Buffer (by default checks all the Buffer)
+    find(s, start=0, end=-1)
+    # Returns a new Buffer which points to at most nbytes bytes (or all current data if nbytes == -1)
+    # Zero memory copy
+    peek(nbytes=-1)
+    # Returns a new Buffer which points to at most nbytes nbytes (or all current data if nbytes == -1) removes data from current Buffer
+    # Zero memory copy
+    take(nbytes=-1)
+    # Returns number of bytes removed (at most nbytes or all current data if nbytes == -1)
+    # Zero memory copy
+    skip(nbytes=-1)
+    # Compares the contents of the buffer with another bytes like object
+    # Zero memory copy if data is in one chunk, or a one-time memory copy if not
+    __eq__(other)
 
-    # Zero copy API (This functions return the original data as a memoryview via an generator)
-    read_zerocopy(nbytes=-1)
-    readexact_zerocopy(nbytes)
-    readuntil_zerocopy(seperator, skip_seperator=False)
-
-
-# An exception that is thrown when the stream has reached EOF but the ammount of data requested is bigger than present in the buffer
-PartialReadError()
-    # The remaining data left in the buffer before EOF has been reached
-    leftover
+    # This functions behave just like they do in bytearray
+    # Zero memory copy if data is in one chunk, or a one-time memory copy if not.
+    # Currently the result of all of this functions is a new copy, it's wise to use them when the outcome will produce small enough allocations that can fit the python allocator cache (less than 512 bytes).
+    split(sep=None, maxsplit=-1)
+    strip(bytes=None)
 ```
 
 ## How ?
-The Buffer class defines write API for providing buffers to be written to with data from a stream.
-
-The Buffer class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
-
-The read API has both zero copy and one copy (convert to bytes) commands.
-
-The data is held inside the Buffer by a series of non contiguous list of buffers which are called Chunks.
-
-The Chunks are re-used by a pool to minimize allocation and improve performance especially in concurrent scenarios.
+TBD

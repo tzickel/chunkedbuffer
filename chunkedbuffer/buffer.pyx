@@ -1,5 +1,7 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
+include "consts.pxi"
 
 from collections import deque
 from .chunk cimport Chunk, Memory
@@ -39,7 +41,7 @@ from .bytearraywrapper cimport ByteArrayWrapper
 
 
 # TODO is this a good default size ?
-_DEFAULT_CHUNK_SIZE = 2048
+#_DEFAULT_CHUNK_SIZE = 2048
 
 
 # TODO any other way to return a zero length bytes ?
@@ -49,7 +51,7 @@ cdef bytes _empty_byte = bytes(b'')
 @cython.no_gc_clear
 @cython.final
 # TODO (cython) what is a good value to put here ?
-@cython.freelist(254)
+@cython.freelist(_FREELIST_SIZE)
 cdef class Buffer:
     cdef:
         Pool _pool
@@ -136,8 +138,8 @@ cdef class Buffer:
         elif self._chunks_length == 0:
             PyBuffer_FillInfo(buffer, self, <void *>PyBytes_AS_STRING(_empty_byte), 0, 1, flags)
 
-    def __releasebuffer__(self, Py_buffer *buffer):
-        self._memoryview_taken -= 1
+    #def __releasebuffer__(self, Py_buffer *buffer):
+        #self._memoryview_taken -= 1
 
     def __len__(self):
         return self._length

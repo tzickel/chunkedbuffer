@@ -5,6 +5,6 @@ import os
 # TODO (cython) validate code for more compiler_directives
 coverage = os.environ.get('CYTHON_COVERAGE', False) in ('1', 'true', '"true"')
 if coverage:
-    setup(ext_modules=cythonize("chunkedbuffer/*.pyx", language_level=3, force=True, compiler_directives={'linetrace': True}))
+    setup(ext_modules=cythonize("chunkedbuffer/*.pyx", force=True, compiler_directives={'linetrace': True}))
 else:
-    setup(ext_modules=cythonize("chunkedbuffer/*.pyx", language_level=3, force=True))
+    setup(ext_modules=cythonize("chunkedbuffer/*.pyx", force=True))

@@ -1,24 +1,27 @@
 ## What?
-An attempt at making an generic efficient API for streaming binary I/O implmentations with emphasis on minimizing allocations and copying.
+This library provides an API for stream processing with emphesis on minimizing memory allocations and copying.
 
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
-## How ?
-The Buffer class defines write API for providing buffers to be written to with data from a stream.
+## Usage
+A typical use case would be to create a Buffer instance and writing data to it with get_chunk()/chunk_written() methods for API which provide an readinto like method or with the extend() method for any bytes like object.
 
-The Buffer class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
+You can then call the find() method to find a given delimiter in the stream or call take()/peek() methods to read bytes from the stream.
 
-The read API has both zero copy and one copy (convert to bytes) commands.
+Those methods return a new Buffer which points only to that specific data.
 
-The data is held inside the Buffer by a series of non contiguous list of buffers which are called Chunks.
+You can then pass the Buffer instance to any method which accepts a bytes like object or call bytearray like operations on it such as split(), strip(), etc....
 
-The Chunks are re-used by a pool to minimize allocation and improve performance especially in concurrent scenarios.
+At the bottom of the document there are technical notes for those who want to understand the inner-workings of this library.
 
 ## Roadmap
 - [ ] API Finalization
 - [ ] Choose license
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
+- [ ] A pure python version for PyPy
+- [ ] Windows support ?
+- [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
 
 ## Installing
 For now you can install this via this github repository by pip installing or adding to your requirements.txt file:
@@ -94,5 +97,13 @@ PartialReadError()
     leftover
 ```
 
-## Partially inspired by
-The .NET library [System.IO.Pipelines](https://docs.microsoft.com/en-us/dotnet/standard/io/pipelines)
+## How ?
+The Buffer class defines write API for providing buffers to be written to with data from a stream.
+
+The Buffer class provides read API which allows for reading, reading until seperator, skiping, peeking and finding.
+
+The read API has both zero copy and one copy (convert to bytes) commands.
+
+The data is held inside the Buffer by a series of non contiguous list of buffers which are called Chunks.
+
+The Chunks are re-used by a pool to minimize allocation and improve performance especially in concurrent scenarios.

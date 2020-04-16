@@ -1,5 +1,7 @@
 # distutils: define_macros=CYTHON_TRACE_NOGIL=1
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, always_allow_keywords=False
 
+include "consts.pxi"
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
@@ -44,7 +46,7 @@ cdef class Memory:
 
 @cython.no_gc_clear
 @cython.final
-@cython.freelist(254)
+@cython.freelist(_FREELIST_SIZE)
 cdef class Chunk:
     def __cinit__(self, Memory memory):
         self._memory = memory

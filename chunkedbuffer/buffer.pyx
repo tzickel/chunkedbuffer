@@ -84,7 +84,6 @@ cdef class Buffer:
                 chunk.memcpy(buf, 0, length)
                 buf += length
                 chunk.close()
-            # TODO check it's ok
             new_chunk._end = self._length
             self._chunks_clear()
             self._chunks_append(new_chunk)
@@ -416,6 +415,8 @@ cdef class Buffer:
             Chunk last
             Py_ssize_t last_size
 
+        if nbytes == 0:
+            return
         last = self._last
         last.written(nbytes)
         last_size = last.size

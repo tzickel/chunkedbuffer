@@ -18,6 +18,7 @@ cdef extern from "string.h" nogil:
     # TODO (windows) we can use bytearray.find instead of this (do benchmark between them)
     void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
+# TODO in windows I need malloc.h ?
 cdef extern from "alloca.h":
     void *alloca(size_t size)
 
@@ -135,7 +136,7 @@ cdef class Buffer:
     def find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Py_buffer buf_s
-            Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length, how_much
+            Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length, how_much, how_much1, how_much2
             Chunk chunk, prev_chunk
             unsigned char* tmp
 
@@ -182,17 +183,21 @@ cdef class Buffer:
                     for chunk in self._chunks:
                         chunk_length = chunk.length()
                         if prev_chunk is not None:
-                            how_much = prev_chunk.copy_to(tmp, -buf_s.len + 1, -1)
-                            how_much += chunk.copy_to(tmp + how_much, 0, buf_s.len - 1)
+                            how_much1 = prev_chunk.copy_to(tmp, -buf_s.len + 1, buf_s.len - 1)
+                            how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
+                            how_much = how_much1 + how_much2
+                            print(bytes(self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much)))
                             if how_much < buf_s.len:
                                 if chunk == self._last:
                                     return -1
                                 else:
                                     # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
                                     raise NotImplementedError()
+                            print(idx, how_much, tmp, s)
                             idx = self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much).find(s)
+                            print(idx)
                             if idx != -1:
-                                return res_idx + idx - buf_s.len + 1
+                                return res_idx + idx - how_much1
                         if start >= chunk_length:
                             res_idx += chunk_length
                             start -= chunk_length

@@ -98,13 +98,14 @@ cdef class Chunk:
         return ret
 
     cdef inline Py_ssize_t copy_to(self, void *dest, Py_ssize_t start, Py_ssize_t length):
+        print(start, length)
         if start < 0:
-            start = self._end - start + 1
-            if start < self._start:
-                return 0
+            start = self._end + start
         else:
             start += self._start
+        start = max(start, self._start)
         length = min(self._end - start, length)
+        print(start, length)
         memcpy(dest, self._buffer + start, length)
         return length
 

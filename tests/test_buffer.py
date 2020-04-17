@@ -34,6 +34,7 @@ def test_simple():
     b.extend(b'test')
     b.extend(b'ing')
     assert b.peek() == b'testing'
+    assert bytes(b.peek()) == b'testing'
     assert b.take() == b'testing'
     assert b.take() == b''
 
@@ -90,43 +91,24 @@ def test_buffer_find():
     b.find(b'i', 4) == 4
     b.find(b'n', 3, 4) == -1
 
-    # This tests are intented to be tested with minimum_buffer_size of 2048  (so enforce it...)
-    b = Buffer()
+    b = Buffer(minimum_chunk_size=2048)
     b.extend(b'a' * 2047)
-    b.extend(b'\r' * 1)
-    b.extend(b'\n' * 1)
+    b.extend(b'\r')
+    b.extend(b'\n')
     b.extend(b'a' * 2047)
-#    assert b.find(b'\r\n') == 2047
+    assert b.find(b'\r\n') == 2047
 
-
-"""    b = Buffer()
-    a = b.get_buffer()
-    a[:2048] = b'a' * 2048
-    b.buffer_written(2048)
-    a = b.get_buffer()
-    a[:2] = b'\r\n'
-    b.buffer_written(2)
-    a = b.get_buffer()
-    a[:2046] = b'a' * 2046
-    b.buffer_written(2046)
-
+    b = Buffer(minimum_chunk_size=2048)
+    b.extend(b'a' * 2048)
+    b.extend(b'\r\n')
+    b.extend(b'a' * 2046)
     assert b.find(b'\r\n') == 2048
 
-
-    b = Buffer()
-    a = b.get_buffer()
-    a[:2046] = b'a' * 2046
-    b.buffer_written(2046)
-    a = b.get_buffer()
-    a[:2] = b'te'
-    b.buffer_written(2)
-    a = b.get_buffer()
-    a[:2] = b'st'
-    b.buffer_written(2)
-    a = b.get_buffer()
-    a[:2046] = b'a' * 2046
-    b.buffer_written(2046)
-
+    b = Buffer(minimum_chunk_size=2048)
+    b.extend(b'a' * 2046)
+    b.extend(b'te')
+    b.extend(b'st')
+    b.extend(b'a' * 2046)
     assert b.find(b'\r\n') == -1
     assert b.find(b'test') == 2046
     assert b.find(b'es') == 2047
@@ -135,24 +117,16 @@ def test_buffer_find():
     assert b.find(b'te') == 2046
     assert b.find(b'st') == 2048
 
-
-    b = Buffer()
-    a = b.get_buffer()
-    a[:2046] = b'a' * 2046
-    b.buffer_written(2046)
-    a = b.get_buffer()
-    a[:2] = b'te'
-    b.buffer_written(2)
-    a = b.get_buffer()
-    a[:2] = b'st'
-    b.buffer_written(2)
-    a = b.get_buffer()
-    a[:2046] = b'a' * 2046
-    b.buffer_written(2046)
+    b = Buffer(minimum_chunk_size=2048)
+    b.extend(b'a' * 2046)
+    b.extend(b'te')
+    b.extend(b'st')
+    b.extend(b'a' * 2046)
     b.skip(2046)
-
     assert b.find(b'\r\n') == -1
+    print(bytes(b.peek()))
+    print(b._debug())
+    print('---')
     assert b.find(b'test') == 0
     b.skip(1)
-    #assert b.find(b'test') == -1
-"""
+    assert b.find(b'test') == -1

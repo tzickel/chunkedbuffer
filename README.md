@@ -20,7 +20,6 @@ At the bottom of the document there are technical notes for those who want to un
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
 - [ ] A pure python version for PyPy
-- [ ] Windows support
 - [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
 
 ## Installing
@@ -35,14 +34,13 @@ Replace master with the specific branch or version tag you want.
 ## Example
 ```python
 if __name__ == "__main__":
-    #msg = chunked_message("Let's try", " to pa", "rse an " , "chunk", "ed", " messa", "ge like", " redis ", "or HTTP chunked encoding", " use")
     msg = b"9\r\nLet's try\r\n6\r\n to pa\r\n7\r\nrse an \r\n5\r\nchunk\r\n2\r\ned\r\n6\r\n messa\r\n7\r\nge like\r\n7\r\n redis \r\n24\r\nor HTTP chunked encoding\r\n4\r\n use\r\n"
     
     # This is a toy chunked message parser to demonstrate some of the API
     buffer = Buffer()
     # Since we aren't reading from I/O let's just copy the message inside
     buffer.extend(msg)
-    # We will keep the real pointers to the message contents in a list
+    # We will keep the pointers to the message contents in a list
     chunks = []
     # length will be None when we need to read the length of the chunk or the number of bytes left to read in a chunk
     length = None
@@ -62,7 +60,7 @@ if __name__ == "__main__":
                 # We've finished reading this part of the message
                 length = None
         # Read how many bytes the next part of the message is
-        else:
+        if length is None:
             # When the buffer is empty, stop parsing
             if not buffer:
                 break
@@ -73,11 +71,11 @@ if __name__ == "__main__":
             # We also read the \r\n after the length, since int parsing can handle it
             length = int(buffer.take(idx + 2))
     # We create one big Buffer that points to all of the message parts
-    chunks = Buffer.merge(chunks)
+    buffer = Buffer.merge(chunks)
     # We can check the value inside the newly created Buffer from all the previous pointers
-    assert chunks == b"Let's try to parse an chunked message like redis or HTTP chunked encoding use"
+    assert buffer == b"Let's try to parse an chunked message like redis or HTTP chunked encoding use"
     # An Buffer is not hashable, so if you want to use it as a bytes replacment, cast it to bytes explicitly
-    print(bytes(chunks))
+    print(bytes(buffer))
 ```
 
 ## API

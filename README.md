@@ -22,6 +22,12 @@ if idx != -1:
     b.skip(2) # We don't need \r\n
 ```
 
+or the same:
+
+```python
+msg = b.takeuntil(b'\r\n') # Will be None if not found
+```
+
 Those methods return a new Buffer which points only to that specific data.
 
 You can then pass the Buffer instance to any method which accepts a bytes like object or call bytearray like operations on it such as split(), strip(), etc....

@@ -18,7 +18,8 @@ cdef extern from "Python.h":
 
 
 @cython.final
-@cython.freelist(_FREELIST_SIZE)
+# This can't be used...
+#@cython.freelist(_FREELIST_SIZE)
 # If you use this for your project, do not allow modifing commands to be used.
 cdef class ByteArrayWrapper(bytearray):
     def __dealloc__(self):

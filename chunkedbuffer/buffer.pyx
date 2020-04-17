@@ -549,7 +549,3 @@ cdef class Buffer:
 
     def strip(self, bytes=None):
         return self.bytearraywrapper().strip(bytes)
-
-
-def find(self):
-    pass

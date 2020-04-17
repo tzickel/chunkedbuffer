@@ -9,16 +9,7 @@ from cpython cimport buffer, Py_buffer
 cimport cython
 
 
-cdef extern from "Python.h":
-    object PyMemoryView_FromMemory(char *mem, Py_ssize_t size, int flags)
-
-
-cdef extern from "string.h":
-    void *memchr(const void *, int, Py_ssize_t)
-    # TODO (cython) what to do on platforms where this does not exist....
-    void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
-
-
+# TODO (cython) move no_gc_clear to Buffer ?
 @cython.no_gc_clear
 @cython.final
 cdef class Memory:
@@ -34,16 +25,18 @@ cdef class Memory:
         if self._buffer is not NULL:
             free(self._buffer)
 
+    # TODO can we just use the object's internal reference counting ?
     cdef inline void increase(self):
         self.reference += 1
 
     cdef inline void decrease(self):
         self.reference -= 1
-        # TODO ref counting should take care, but if no pool, we can just free the memory now.
+        # TODO reference counting should take care of this, but if no pool, we can just free the memory now.
         if self.reference == 0 and self._pool is not None:
             self._pool.return_memory(self)
 
 
+# TODO (cython) move no_gc_clear to Buffer ?
 @cython.no_gc_clear
 @cython.final
 @cython.freelist(_FREELIST_SIZE)
@@ -63,6 +56,7 @@ cdef class Chunk:
             self._memory.decrease()
             self._memory = None
 
+    # TODO do we need this ?
     cdef inline void close(self):
         if self._memory is not None:
             self._memory.decrease()
@@ -80,43 +74,8 @@ cdef class Chunk:
     cdef inline Py_ssize_t length(self):
         return self._end - self._start
 
-    # TODO why is this so much slower than the other option ? with bytes(result) instead of result.tobytes()
-    #cdef inline const char [:] readable(self):
-        #return <const char [:self._end - self._start]>(self._buffer + self._start)
-
-    cdef inline object readable(self):
-        return PyMemoryView_FromMemory(<char *>self._buffer + self._start, self._end - self._start, buffer.PyBUF_READ)
-
-    cdef inline object readable_partial(self, Py_ssize_t length):
-        return PyMemoryView_FromMemory(<char *>self._buffer + self._start, length, buffer.PyBUF_READ)
-
     cdef inline void consume(self, Py_ssize_t nbytes):
         self._start += nbytes
-
-    cdef inline Py_ssize_t find(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
-        cdef:
-            char *ret
-            Py_ssize_t s_length
-
-        if end == -1:
-            end = self._end
-        else:
-            end = min(self._start + end, self._end)
-        s_length = len(s)
-        if s_length == 1:
-            ret = <char *>memchr(self._buffer + self._start + start, s[0], end)
-        elif s_length != 0:
-            # TODO is this the correct way to do this ?
-            ret = <char *>memmem(self._buffer + self._start + start, end, <const void *>&s[0], s_length)
-        else:
-            # TODO is this ok ?
-            if start <= end:
-                return self._start + start
-            else:
-                return -1
-        if ret == NULL:
-            return -1
-        return <Py_ssize_t>(ret - self._buffer - self._start)
 
     cdef inline Chunk clone(self):
         cdef:
@@ -138,7 +97,7 @@ cdef class Chunk:
         ret._writable = False
         return ret
 
-    cdef inline Py_ssize_t memcpy(self, void *dest, Py_ssize_t start, Py_ssize_t length):
+    cdef inline Py_ssize_t copy_to(self, void *dest, Py_ssize_t start, Py_ssize_t length):
         if start < 0:
             start = self._end - start + 1
             if start < self._start:
@@ -149,7 +108,7 @@ cdef class Chunk:
         memcpy(dest, self._buffer + start, length)
         return length
 
-    # TODO use buffer.PyBuffer_FillInfo
+    # TODO benchmark to use buffer.PyBuffer_FillInfo instead
     def __getbuffer__(self, Py_buffer *buffer, int flags):
         if self._memoryview_taken > 0:
             raise BufferError("Please release previous buffer taken")

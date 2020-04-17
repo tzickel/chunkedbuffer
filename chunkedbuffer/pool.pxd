@@ -1,6 +1,7 @@
 from .chunk cimport Memory, Chunk
 cimport cython
 
+
 cdef class Pool:
     cdef Chunk get_chunk(self, Py_ssize_t size)
     cdef void return_memory(self, Memory memory)

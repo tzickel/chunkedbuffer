@@ -17,11 +17,9 @@ cdef extern from "Python.h":
         char *ob_start
 
 
-# TODO if you plan on using this, do not allow for modifing commands to be run on it.
-@cython.no_gc_clear
 @cython.final
-# TODO (cython) what is a good value to put here ?
 @cython.freelist(_FREELIST_SIZE)
+# If you use this for your project, do not allow modifing commands to be used.
 cdef class ByteArrayWrapper(bytearray):
     def __dealloc__(self):
         (<PyVarObject *>self).ob_size = 0

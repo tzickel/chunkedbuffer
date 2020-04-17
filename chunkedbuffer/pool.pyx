@@ -15,7 +15,6 @@ cdef class Pool:
         raise NotImplementedError()
 
 
-# TODO (cython) implment dealloc
 @cython.final
 cdef class SameSizePool:
     def __cinit__(self, Py_ssize_t size):
@@ -42,6 +41,7 @@ cdef class UnboundedPool:
         self._memory = {}
 
     cdef Chunk get_chunk(self, Py_ssize_t size):
+        # TODO implment fast power of 2 calculation
         #size = 1 << (size - 1).bit_length()
         memory = self._memory.get(size)
 

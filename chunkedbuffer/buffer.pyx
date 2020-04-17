@@ -31,7 +31,6 @@ from cpython.bytes cimport PyBytes_AS_STRING
 # TODO document that the code is async safe but not thread safe
 # TODO text encoding per read ?
 # TODO (api) should commands have an optional start index ?
-# TODO set a maximum chunk size for buffer ?
 # TODO have api to get the chunks buffer sfor stuff like writev !
 
 
@@ -59,6 +58,7 @@ cdef class Buffer:
         bint _release_fast_to_pool
 
     # There is allot of lazy initilization of stuff because this class needs to be fast for the common usecase.
+    # TODO add maximum_chunk_size here as well
     def __cinit__(self, bint release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
         self._minimum_chunk_size = minimum_chunk_size
         self._current_chunk_size = minimum_chunk_size
@@ -81,7 +81,7 @@ cdef class Buffer:
             buf = memory._buffer
             for chunk in self._chunks:
                 length = chunk.length()
-                chunk.memcpy(buf, 0, length)
+                chunk.copy_to(buf, 0, length)
                 buf += length
                 chunk.close()
             new_chunk._end = self._length
@@ -101,21 +101,21 @@ cdef class Buffer:
     def __len__(self):
         return self._length
 
-    cdef inline bint _initialize_chunks(self):
+    # TODO (cython) validate that bint except False is ok
+    cdef inline bint _initialize_chunks(self) except False:
         if self._chunks_length == 1 and self._chunks is None:
-            # TODO (cython) can this fail ? do we need except ?
             chunk = deque()
             self._chunks = chunk
             self._chunks_append = chunk.append
             self._chunks_popleft = chunk.popleft
             self._chunks_clear = chunk.clear
-            if self._last:
+            if self._last is not None:
                 self._chunks_append(self._last)
         return True
 
     cdef inline void _add_chunk(self, Chunk chunk):
         self._initialize_chunks()
-        if self._chunks is not None:
+        if self._chunks_append is not None:
             self._chunks_append(chunk)
         self._chunks_length += 1
         self._length += chunk.length()
@@ -123,7 +123,7 @@ cdef class Buffer:
 
     cdef inline void _add_chunk_without_length(self, Chunk chunk):
         self._initialize_chunks()
-        if self._chunks is not None:
+        if self._chunks_append is not None:
             self._chunks_append(chunk)
         self._chunks_length += 1
         self._last = chunk

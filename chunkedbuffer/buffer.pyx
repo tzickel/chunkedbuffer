@@ -129,8 +129,54 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
+    def find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1):
+        cdef:
+            Py_buffer buf_s
+            Py_ssize_t res_idx, idx, chunk_length
+            Chunk chunk
+
+        if start < 0 or end < -1:
+            raise ValueError("Not supporting negative indexes")
+        if end == -1:
+            end = self._length
+
+        if self._chunks_length == 0:
+            if len(s) == 0 and start == 0:
+                return 0
+            return -1
+        elif self._chunks_length == 1:
+            return self.bytearraywrapper().find(s, start, end)
+        else:
+            # TODO do I need to ask for buffer.PyBUF_C_CONTIGUOUS
+            buffer.PyObject_GetBuffer(s, &buf_s, buffer.PyBUF_SIMPLE)
+            try:
+                if buf_s.len == 1:
+                    res_idx = 0
+                    for chunk in self._chunks:
+                        chunk_length = chunk.length()
+                        if start >= chunk_length:
+                            res_idx += chunk_length
+                            start -= chunk_length
+                            end -= chunk_length
+                            continue
+                        if end <= 0:
+                            break
+                        idx = self.bytearraywrapper_with_address_and_length(chunk._buffer + chunk._start, chunk_length).find(s, start, end)
+                        if idx == -1:
+                            res_idx += chunk_length
+                            start = 0
+                            end -= chunk_length
+                        else:
+                            res_idx += idx
+                            return res_idx
+                    return -1
+                else:
+                    raise RuntimeError()
+            finally:
+                buffer.PyBuffer_Release(&buf_s)
+
     # TODO (fix this to work properly) also benchmark if it's better to use bytearray's find instead (then it will be portable instead of memmem as well)
-    def find(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
+    def findold(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Chunk chunk, prev_chunk
             Py_ssize_t chunk_length, prev_chunk_length, res_idx, idx, len_s
@@ -391,10 +437,10 @@ cdef class Buffer:
             bint can_reuse
 
         can_reuse = False
-        if self._last:
+        if self._last is not None:
             chunk = self._last
             # If we are the only users of this Chunk we can simply reset it.
-            if chunk._memory.reference == 1:
+            if chunk._memory.reference == 1 and self._length == 0:
                 chunk._start = 0
                 chunk._end = 0
                 can_reuse = True
@@ -490,6 +536,18 @@ cdef class Buffer:
         else:
             baw = self._bytearraywrapper
         baw._unsafe_set_memory_from_pointer(self._unsafe_get_my_pointer(), self._length)
+        return baw
+
+    cdef inline ByteArrayWrapper bytearraywrapper_with_address_and_length(self, char *addr, Py_ssize_t length):
+        cdef:
+            ByteArrayWrapper baw
+
+        if self._bytearraywrapper is None:
+            baw = ByteArrayWrapper()
+            self._bytearraywrapper = baw
+        else:
+            baw = self._bytearraywrapper
+        baw._unsafe_set_memory_from_pointer(addr, length)
         return baw
 
     # TODO (api) do we want to support all other comparisons as well ?

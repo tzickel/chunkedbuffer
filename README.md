@@ -83,6 +83,7 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Precomputed
     __len__()
     # Finds the index (-1 if did not find) of s inside start, end indicies in the Buffer (by default checks all the Buffer)
+    # Zero memory copy (unless more than one chunk, and then just copies length of s*2 from each chunk)
     find(s, start=0, end=-1)
     # Returns a new Buffer which points to at most nbytes bytes (or all current data if nbytes == -1)
     # Zero memory copy
@@ -97,7 +98,7 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Zero memory copy if data is in one chunk, or a one-time memory copy if not
     __eq__(other)
 
-    # This functions behave just like they do in bytearray
+    # This functions behave just like they do in bytearray (more functions can be added)
     # Zero memory copy if data is in one chunk, or a one-time memory copy if not.
     # Currently the result of all of this functions is a new copy, it's wise to use them when the outcome will produce small enough allocations that can fit the python allocator cache (less than 512 bytes).
     split(sep=None, maxsplit=-1)

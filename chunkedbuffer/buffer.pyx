@@ -186,16 +186,13 @@ cdef class Buffer:
                             how_much1 = prev_chunk.copy_to(tmp, -buf_s.len + 1, buf_s.len - 1)
                             how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
                             how_much = how_much1 + how_much2
-                            print(bytes(self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much)))
                             if how_much < buf_s.len:
                                 if chunk == self._last:
                                     return -1
                                 else:
                                     # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
                                     raise NotImplementedError()
-                            print(idx, how_much, tmp, s)
                             idx = self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much).find(s)
-                            print(idx)
                             if idx != -1:
                                 return res_idx + idx - how_much1
                         if start >= chunk_length:

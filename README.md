@@ -20,7 +20,7 @@ At the bottom of the document there are technical notes for those who want to un
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
 - [ ] A pure python version for PyPy
-- [ ] Windows support ?
+- [ ] Windows support
 - [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
 
 ## Installing
@@ -34,23 +34,50 @@ Replace master with the specific branch or version tag you want.
 
 ## Example
 ```python
-from chunkedbuffer import Buffer
-
 if __name__ == "__main__":
+    #msg = chunked_message("Let's try", " to pa", "rse an " , "chunk", "ed", " messa", "ge like", " redis ", "or HTTP chunked encoding", " use")
+    msg = b"9\r\nLet's try\r\n6\r\n to pa\r\n7\r\nrse an \r\n5\r\nchunk\r\n2\r\ned\r\n6\r\n messa\r\n7\r\nge like\r\n7\r\n redis \r\n24\r\nor HTTP chunked encoding\r\n4\r\n use\r\n"
+    
+    # This is a toy chunked message parser to demonstrate some of the API
     buffer = Buffer()
-    # We can use here the default value -1, if our writing implmentation can handle arbitrary sizes (like socket.recv_into can)
-    buff = pipe.get_buffer(4)
-    # Because the returned buffer might be bigger than 4, and this is an example code, we need to write it like this
-    buff[:4] = b'test'
-    buffer.buffer_written(4)
-    # The functions return None when there is not enough data to return
-    assert pipe.readuntil(b'\r\n') == None
-    # You must request a buffer each time you want to write new data
-    buffer = pipe.get_buffer(2)
-    buffer[:2] = b'\r\n'
-    # You must tell the Pipe how much data has been written
-    pipe.buffer_written(2)
-    assert pipe.readuntil(b'\r\n') == b'test\r\n'
+    # Since we aren't reading from I/O let's just copy the message inside
+    buffer.extend(msg)
+    # We will keep the real pointers to the message contents in a list
+    chunks = []
+    # length will be None when we need to read the length of the chunk or the number of bytes left to read in a chunk
+    length = None
+    while True:
+        # We have length bytes to read from the message
+        if length is not None:
+            # In network I/O there might be less to read than length bytes so we do it inside a loop
+            chunk = buffer.take(length)
+            chunk_length = len(chunk)
+            if chunk_length:
+                # Save a pointer to this part of the message for later retreival
+                chunks.append(chunk)
+                length -= chunk_length
+            if length == 0:
+                # We don't need the ending \r\n
+                buffer.skip(2)
+                # We've finished reading this part of the message
+                length = None
+        # Read how many bytes the next part of the message is
+        else:
+            # When the buffer is empty, stop parsing
+            if not buffer:
+                break
+            # Look for the next delimiter
+            idx = buffer.find(b"\r\n")
+            if idx == -1:
+                break
+            # We also read the \r\n after the length, since int parsing can handle it
+            length = int(buffer.take(idx + 2))
+    # We create one big Buffer that points to all of the message parts
+    chunks = Buffer.merge(chunks)
+    # We can check the value inside the newly created Buffer from all the previous pointers
+    assert chunks == b"Let's try to parse an chunked message like redis or HTTP chunked encoding use"
+    # An Buffer is not hashable, so if you want to use it as a bytes replacment, cast it to bytes explicitly
+    print(bytes(chunks))
 ```
 
 ## API

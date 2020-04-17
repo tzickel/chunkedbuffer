@@ -132,8 +132,9 @@ cdef class Buffer:
     def find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Py_buffer buf_s
-            Py_ssize_t res_idx, idx, chunk_length
-            Chunk chunk
+            Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length
+            Chunk chunk, prev_chunk
+            unsigned char* tmp
 
         if start < 0 or end < -1:
             raise ValueError("Not supporting negative indexes")
@@ -147,7 +148,6 @@ cdef class Buffer:
         elif self._chunks_length == 1:
             return self.bytearraywrapper().find(s, start, end)
         else:
-            # TODO do I need to ask for buffer.PyBUF_C_CONTIGUOUS
             buffer.PyObject_GetBuffer(s, &buf_s, buffer.PyBUF_SIMPLE)
             try:
                 if buf_s.len == 1:
@@ -171,7 +171,36 @@ cdef class Buffer:
                             return res_idx
                     return -1
                 else:
-                    raise RuntimeError()
+                    tmp = <unsigned char*>alloca((buf_s.len - 1) * 2)
+                    if not tmp:
+                        raise MemoryError()
+                    res_idx = 0
+                    prev_chunk = None
+                    for chunk in self._chunks:
+                        chunk_length = chunk.length()
+                        if prev_chunk is not None:
+                            pass
+                            #XXX
+                        if start >= chunk_length:
+                            res_idx += chunk_length
+                            start -= chunk_length
+                            end -= chunk_length
+                            prev_chunk = chunk
+                            prev_chunk_length = chunk_length
+                            continue
+                        if end <= 0:
+                            break
+                        idx = self.bytearraywrapper_with_address_and_length(chunk._buffer + chunk._start, chunk_length).find(s, start, end)
+                        if idx == -1:
+                            res_idx += chunk_length
+                            start = 0
+                            end -= chunk_length
+                        else:
+                            res_idx += idx
+                            return res_idx
+                        prev_chunk = chunk
+                        prev_chunk_length = chunk_length
+                    return -1
             finally:
                 buffer.PyBuffer_Release(&buf_s)
 
@@ -483,7 +512,6 @@ cdef class Buffer:
             Py_ssize_t size, leftover, start
             Py_buffer buf, buf_data
 
-        # TODO do I need to ask for buffer.PyBUF_C_CONTIGUOUS
         buffer.PyObject_GetBuffer(data, &buf_data, buffer.PyBUF_SIMPLE)
         # TODO this is annoying, but my only way around this is to bypass the except -1 in PyObject_GetBuffer defintion and handle it myself...
         try:
@@ -492,7 +520,7 @@ cdef class Buffer:
             while leftover:
                 chunk = self.get_chunk()
                 # TODO refactor this to memcpy other side ?
-                buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE | buffer.PyBUF_C_CONTIGUOUS)
+                buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE)
                 size = min(buf.len, leftover)
                 memcpy(buf.buf, <const void *>&buf_data.buf[0] + start, size)
                 buffer.PyBuffer_Release(&buf)

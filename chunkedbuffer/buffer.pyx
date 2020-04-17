@@ -65,6 +65,9 @@ cdef class Buffer:
         self._pool = pool
         self._release_fast_to_pool = release_fast_to_pool
 
+    # TODO do this for optimization?
+    #def __bytes__(self):
+
     # TODO (misc) add counters for how much compact has been done
     cdef void _compact(self):
         cdef:
@@ -132,7 +135,7 @@ cdef class Buffer:
     def find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1):
         cdef:
             Py_buffer buf_s
-            Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length
+            Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length, how_much
             Chunk chunk, prev_chunk
             unsigned char* tmp
 
@@ -161,7 +164,7 @@ cdef class Buffer:
                             continue
                         if end <= 0:
                             break
-                        idx = self.bytearraywrapper_with_address_and_length(chunk._buffer + chunk._start, chunk_length).find(s, start, end)
+                        idx = self.bytearraywrapper_with_address_and_length(<char *>chunk._buffer + chunk._start, chunk_length).find(s, start, end)
                         if idx == -1:
                             res_idx += chunk_length
                             start = 0
@@ -171,16 +174,25 @@ cdef class Buffer:
                             return res_idx
                     return -1
                 else:
+                    # TODO we use alloca here for speed, maybe if the delimiter is too big, use malloc instead ?
+                    # TODO if buf_s.len is more than minimum_chunk_size, then just abort now (or simply run compact and normal find)
                     tmp = <unsigned char*>alloca((buf_s.len - 1) * 2)
-                    if not tmp:
-                        raise MemoryError()
                     res_idx = 0
                     prev_chunk = None
                     for chunk in self._chunks:
                         chunk_length = chunk.length()
                         if prev_chunk is not None:
-                            pass
-                            #XXX
+                            how_much = prev_chunk.copy_to(tmp, -buf_s.len + 1, -1)
+                            how_much += chunk.copy_to(tmp + how_much, 0, buf_s.len - 1)
+                            if how_much < buf_s.len:
+                                if chunk == self._last:
+                                    return -1
+                                else:
+                                    # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
+                                    raise NotImplementedError()
+                            idx = self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much).find(s)
+                            if idx != -1:
+                                return res_idx + idx - buf_s.len + 1
                         if start >= chunk_length:
                             res_idx += chunk_length
                             start -= chunk_length
@@ -203,90 +215,6 @@ cdef class Buffer:
                     return -1
             finally:
                 buffer.PyBuffer_Release(&buf_s)
-
-    # TODO (fix this to work properly) also benchmark if it's better to use bytearray's find instead (then it will be portable instead of memmem as well)
-    def findold(self, const unsigned char [::1] s, Py_ssize_t start=0, Py_ssize_t end=-1):
-        cdef:
-            Chunk chunk, prev_chunk
-            Py_ssize_t chunk_length, prev_chunk_length, res_idx, idx, len_s
-            unsigned char* tmp
-            uintptr_t ret
-
-        len_s = len(s)
-
-        if start < 0 or end < -1:
-            raise ValueError("Not supporting negative indexes")
-        if end == -1:
-            end = self._length
-
-        if self._chunks_length == 0:
-            if len_s == 0 and start == 0:
-                return 0
-            return -1
-        elif self._chunks_length == 1:
-            #return self.bytearraywrapper().find(s, start, end)
-            return self._last.find(s, start, end)
-        else:
-            if len_s == 1:
-                res_idx = 0
-                for chunk in self._chunks:
-                    chunk_length = chunk.length()
-                    if start >= chunk_length:
-                        res_idx += chunk_length
-                        start -= chunk_length
-                        end -= chunk_length
-                        continue
-                    if end <= 0:
-                        break
-                    idx = chunk.find(s, start, end)
-                    if idx == -1:
-                        res_idx += chunk_length
-                        start = 0
-                        end -= chunk_length
-                    else:
-                        res_idx += idx
-                        return res_idx
-                return -1
-            else:
-                tmp = <unsigned char*>alloca((len_s - 1) * 2)
-                if not tmp:
-                    raise MemoryError()
-                prev_chunk = None
-                prev_chunk_length = 0
-                res_idx = 0
-                for chunk in self._chunks:
-                    chunk_length = chunk.length()
-                    if prev_chunk:
-                        # To simplify this code, we will fail if chunk_length is shorter than the string we are looking for
-                        # TODO we need to be carefull here that both prev_chunk and chunk can hold this search string, or abort with an error !
-                        #copy_from_first = 
-                        #memcpy(tmp, <const void *>prev_chunk.__raw_address_end() - len_s + 1, len_s - 1)
-                        #memcpy(tmp + len_s - 1, <const void *>chunk.__raw_address_start(), len_s - 1)
-                        #chunk.memcpy(tmp, )
-                        ret = <uintptr_t>memmem(tmp, (len_s - 1) * 2, <const void *>&s[0], len_s)
-                        if ret:
-                            ret = ret - (<uintptr_t>tmp) + res_idx - len_s + 1
-                            return ret
-                    if start >= chunk_length:
-                        res_idx += chunk_length
-                        start -= chunk_length
-                        end -= chunk_length
-                        prev_chunk = chunk
-                        prev_chunk_length = chunk_length
-                        continue
-                    if end <= 0:
-                        break
-                    idx = chunk.find(s, start, end)
-                    if idx == -1:
-                        res_idx += chunk_length
-                        start = 0
-                        end -= chunk_length
-                    else:
-                        res_idx += idx
-                        return res_idx
-                    prev_chunk = chunk
-                    prev_chunk_length = chunk_length
-                return -1
 
     def peek(self, Py_ssize_t nbytes=-1):
         cdef:

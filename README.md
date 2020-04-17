@@ -139,6 +139,8 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Returns number of bytes removed (at most nbytes or all current data if nbytes == -1)
     # Zero memory copy
     skip(nbytes=-1)
+    # Combines find() and take() returning None if s was not found. include_s=True will include it, otherwise skip it
+    takeuntil(s, include_s=False)
     # Compares the contents of the buffer with another bytes like object
     # Zero memory copy if data is in one chunk, or a one-time memory copy if not
     __eq__(other)

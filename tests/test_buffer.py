@@ -130,3 +130,13 @@ def test_buffer_find():
     assert b.find(b'test') == 0
     b.skip(1)
     assert b.find(b'test') == -1
+
+
+def test_buffer_takeuntil():
+    b = Buffer()
+    b.extend(b'test')
+    assert b.takeuntil(b'\r\n') == None
+    b.extend(b'\r\ning')
+    assert b.takeuntil(b'\r\n') == b'test'
+    assert b.takeuntil(b'\r\n') == None
+    assert b.take() == b'ing'

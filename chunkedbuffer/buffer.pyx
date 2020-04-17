@@ -5,6 +5,8 @@ include "consts.pxi"
 
 cimport cython
 
+# TODO we can invalidate cache on BAW and on takeuntil
+
 # TODO (speed) we can initilize it only when Buffer has multiple chunks
 from collections import deque
 from .chunk cimport Chunk, Memory
@@ -57,6 +59,8 @@ cdef class Buffer:
         Chunk _last
         ByteArrayWrapper _bytearraywrapper
         bint _release_fast_to_pool
+        object _takeuntil_cache_object
+        Py_ssize_t _takeuntil_cache_index
 
     # There is allot of lazy initilization of stuff because this class needs to be fast for the common usecase.
     # TODO add maximum_chunk_size here as well
@@ -133,7 +137,7 @@ cdef class Buffer:
         self._last = chunk
 
     # Read API
-    def find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1):
+    cpdef Py_ssize_t find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1) except -2:
         cdef:
             Py_buffer buf_s
             Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length, how_much, how_much1, how_much2
@@ -187,7 +191,8 @@ cdef class Buffer:
                             how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
                             how_much = how_much1 + how_much2
                             if how_much < buf_s.len:
-                                if chunk == self._last:
+                                # TODO is or == ?
+                                if chunk is self._last:
                                     return -1
                                 else:
                                     # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
@@ -248,11 +253,13 @@ cdef class Buffer:
                     ret._add_chunk(chunk.clone())
             return ret
 
-    def take(self, Py_ssize_t nbytes=-1):
+    cpdef Buffer take(self, Py_ssize_t nbytes=-1):
         cdef:
             Buffer ret
             Chunk last, chunk
             Py_ssize_t last_length, chunk_length, to_remove
+
+        self._takeuntil_cache_object = None
         
         if nbytes < 0:
             nbytes = self._length
@@ -317,10 +324,12 @@ cdef class Buffer:
 
             return ret
 
-    def skip(self, Py_ssize_t nbytes=-1):
+    cpdef Py_ssize_t skip(self, Py_ssize_t nbytes=-1):
         cdef:
             Chunk last, chunk
             Py_ssize_t last_length, to_remove, chunk_length, ret
+
+        self._takeuntil_cache_object = None
 
         if nbytes < 0:
             nbytes = self._length
@@ -369,6 +378,28 @@ cdef class Buffer:
                     self._chunks_length -= 1
                     to_remove -= 1
 
+            return ret
+
+    def takeuntil(self, s, bint include_s=False):
+        cdef:
+            Py_ssize_t idx
+
+        if self._takeuntil_cache_object == s:
+            idx = self.find(s, self._takeuntil_cache_index)
+        else:
+            self._takeuntil_cache_object = None
+            idx = self.find(s)
+        if idx == -1:
+            self._takeuntil_cache_object = s
+            # TODO is this correct ? (I think by checking yes)
+            self._takeuntil_cache_index = self._length
+            return None
+        self._takeuntil_cache_object = None
+        if include_s:
+            return self.take(idx + len(s))
+        else:
+            ret = self.take(idx)
+            self.skip(len(s))
             return ret
 
     def _debug(self):
@@ -452,7 +483,7 @@ cdef class Buffer:
                 # TODO refactor this to memcpy other side ?
                 buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE)
                 size = min(buf.len, leftover)
-                memcpy(buf.buf, <const void *>&buf_data.buf[0] + start, size)
+                memcpy(buf.buf, <const char *>buf_data.buf + start, size)
                 buffer.PyBuffer_Release(&buf)
                 self.chunk_written(size)
                 leftover -= size
@@ -518,3 +549,7 @@ cdef class Buffer:
 
     def strip(self, bytes=None):
         return self.bytearraywrapper().strip(bytes)
+
+
+def find(self):
+    pass

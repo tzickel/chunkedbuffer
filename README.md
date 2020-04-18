@@ -150,6 +150,10 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Compares the contents of the buffer with another bytes like object
     # Zero memory copy
     __eq__(other)
+    # Gets the chunks contained in the buffer, this is best used for zero-coping the data by accessing each Chunk's buffer protocol (with API such as os.writev or socket.sendmsg)
+    # Zero memory copy
+    getchunks()
+
 
     # This functions behave just like they do in bytearray (more functions can be added)
     # Zero memory copy if data is in one chunk, or a one-time memory copy if not.

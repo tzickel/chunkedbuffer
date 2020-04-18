@@ -54,6 +54,9 @@ cdef class Chunk:
     def __dealloc__(self):
         self._memory.decrease()
 
+    cdef void readonly(self):
+        self._writable = False
+
     cdef inline bint written(self, Py_ssize_t nbytes) except 0:
         if nbytes < 0 or nbytes > (self.size - self._end):
             raise ValueError('Tried to write an invalid length %d' % nbytes)
@@ -101,20 +104,23 @@ cdef class Chunk:
 
     # TODO we can do better flags checking
     def __getbuffer__(self, Py_buffer *buffer, int flags):
-        if self._memoryview_taken > 0:
-            raise BufferError("Please release previous buffer taken")
-        if self._writable == False:
-            raise BufferError("This piece of chunk is readonly")
-        buffer.buf = &(self._buffer[self._end])
+        if self._writable:
+            if self._memoryview_taken > 0:
+                raise BufferError("Please release previous buffer taken")
+            buffer.buf = &(self._buffer[self._end])
+            buffer.len = self.size - self._end
+            buffer.readonly = 0
+        else:
+            buffer.buf = &(self._buffer[self._start])
+            buffer.len = self._end - self._start
+            buffer.readonly = 1
         buffer.format = 'B'
         buffer.internal = NULL
         buffer.itemsize = 1
-        buffer.len = self.size - self._end
         buffer.ndim = 1
         # TODO how to do this properly ?
         buffer.obj = self
-        buffer.readonly = 0
-        self._shape[0] = self.size - self._end
+        self._shape[0] = buffer.len
         buffer.shape = self._shape
         buffer.strides = self._strides
         buffer.suboffsets = NULL
@@ -125,4 +131,7 @@ cdef class Chunk:
 
     # This is a hack fix to make SSL recv_into work..... this is the length of leftover writable.
     def __len__(self):
-        return self.size - self._end
+        if self._writable:
+            return self.size - self._end
+        else:
+            return self._end - self._start

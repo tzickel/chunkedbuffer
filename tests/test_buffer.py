@@ -140,3 +140,16 @@ def test_buffer_takeuntil():
     assert b.takeuntil(b'\r\n') == b'test'
     assert b.takeuntil(b'\r\n') == None
     assert b.take() == b'ing'
+
+
+def test_buffer_getchunks():
+    b = Buffer(minimum_chunk_size=4)
+    with pytest.raises(ValueError):
+        b.get_chunks()
+    b.extend(b'test')
+    b.extend(b'ing')
+    with pytest.raises(ValueError):
+        b.get_chunks()
+    a = b.take()
+    assert len(a.get_chunks()) == 2
+    assert b''.join(a.get_chunks()) == b'testing'

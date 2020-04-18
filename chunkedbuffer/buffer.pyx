@@ -59,6 +59,7 @@ cdef class Buffer:
         bint _release_fast_to_pool
         object _takeuntil_cache_object
         Py_ssize_t _takeuntil_cache_index
+        bint _not_origin
 
     # There is allot of lazy initilization of stuff because this class needs to be fast for the common usecase.
     # TODO add maximum_chunk_size here as well
@@ -67,9 +68,6 @@ cdef class Buffer:
         self._current_chunk_size = minimum_chunk_size
         self._pool = pool
         self._release_fast_to_pool = release_fast_to_pool
-
-    # TODO do this for optimization?
-    #def __bytes__(self):
 
     # TODO (misc) add counters for how much compact has been done
     cdef void _compact(self):
@@ -119,6 +117,8 @@ cdef class Buffer:
         return True
 
     cdef inline void _add_chunk(self, Chunk chunk):
+        self._not_origin = True
+        chunk.readonly()
         self._initialize_chunks()
         if self._chunks_append is not None:
             self._chunks_append(chunk)
@@ -532,6 +532,16 @@ cdef class Buffer:
             baw = self._bytearraywrapper
         baw._unsafe_set_memory_from_pointer(addr, length)
         return baw
+
+    def get_chunks(self):
+        if not self._not_origin:
+            raise ValueError('Cannot get chunks of writable Buffer, .take() the data first')
+        if self._chunks is not None:
+            return self._chunks
+        elif self._chunks_length == 1:
+            return [self._last]
+        else:
+            return []
 
     # TODO (api) do we want to support all other comparisons as well ?
     def __eq__(self, other):

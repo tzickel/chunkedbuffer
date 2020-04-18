@@ -22,7 +22,6 @@ cdef class Chunk:
         Py_ssize_t _shape[1]
         Py_ssize_t _strides[1]
 
-    cdef inline void close(self)
     cdef inline bint written(self, Py_ssize_t nbytes) except 0
     cdef inline Py_ssize_t free(self)
     cdef inline Py_ssize_t length(self)

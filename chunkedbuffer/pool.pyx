@@ -45,16 +45,15 @@ cdef class UnboundedPool:
         #size = 1 << (size - 1).bit_length()
         memory = self._memory.get(size)
 
-        if not memory:
-            return Chunk(Memory(size, self))
-        else:
+        if memory:
             return Chunk(memory.pop())
+        else:
+            return Chunk(Memory(size, self))
 
     cdef void return_memory(self, Memory memory):
         self._memory.setdefault(memory.size, deque()).append(memory)
 
     def reset(self):
-        # TODO is this sufficient ?
         self._memory = {}
 
 

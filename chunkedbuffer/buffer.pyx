@@ -28,8 +28,6 @@ from cpython cimport buffer, Py_buffer
 from cpython.buffer cimport PyBuffer_FillInfo
 from cpython.bytes cimport PyBytes_AS_STRING
 
-
-# TODO make sure there is close api for everything
 # TODO how much defensive should we on general exceptions happening?
 # TODO document that the code is async safe but not thread safe
 # TODO text encoding per read ?
@@ -91,7 +89,6 @@ cdef class Buffer:
                 length = chunk.length()
                 chunk.copy_to(buf, 0, length)
                 buf += length
-                chunk.close()
             new_chunk._end = self._length
             self._chunks_clear()
             self._chunks_append(new_chunk)
@@ -317,7 +314,6 @@ cdef class Buffer:
                 self._last = None
             else:
                 while to_remove:
-                    # We don't call .close() here on chunks because either we still use them, or they have transfered ownership
                     self._chunks_popleft()
                     self._chunks_length -= 1
                     to_remove -= 1
@@ -347,7 +343,6 @@ cdef class Buffer:
                 if self._chunks is not None:
                     self._chunks_clear()
                 self._chunks_length = 0
-                last.close()
                 self._last = None
             else:
                 last.consume(nbytes)
@@ -363,7 +358,6 @@ cdef class Buffer:
                         chunk.consume(nbytes)
                     break
                 else:
-                    chunk.close()
                     nbytes -= chunk_length
                     ret += chunk_length
                     to_remove += 1
@@ -541,7 +535,30 @@ cdef class Buffer:
 
     # TODO (api) do we want to support all other comparisons as well ?
     def __eq__(self, other):
-        return self.bytearraywrapper().__eq__(other)
+        cdef:
+            Py_buffer buf
+            void *ptr
+            Py_ssize_t length
+            Chunk chunk
+
+        buffer.PyObject_GetBuffer(other, &buf, buffer.PyBUF_SIMPLE)
+        try:
+            if self._length != buf.len:
+                return False
+            if self._chunks_length == 1:
+                return memcmp(self._unsafe_get_my_pointer(), buf.buf, self._length) == 0
+            elif self._chunks_length == 0:
+                return True
+            else:
+                ptr = buf.buf
+                for chunk in self._chunks:
+                    length = chunk.length()
+                    if memcmp(ptr, chunk._buffer + chunk._start, length) != 0:
+                        return False
+                    ptr += length
+                return True
+        finally:
+            buffer.PyBuffer_Release(&buf)
 
     # TODO (api) which stringlib commands to support?
     def split(self, sep=None, maxsplit=-1):

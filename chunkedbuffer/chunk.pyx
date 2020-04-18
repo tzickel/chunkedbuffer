@@ -10,6 +10,7 @@ cimport cython
 
 
 # TODO (cython) move no_gc_clear to Buffer ?
+# TODO (cython) how to signify our size has the malloc size as well (like in bytearray)?
 @cython.no_gc_clear
 @cython.final
 cdef class Memory:
@@ -25,7 +26,6 @@ cdef class Memory:
         if self._buffer is not NULL:
             free(self._buffer)
 
-    # TODO can we just use the object's internal reference counting ?
     cdef inline void increase(self):
         self.reference += 1
 
@@ -52,15 +52,7 @@ cdef class Chunk:
         self._strides[0] = 1
 
     def __dealloc__(self):
-        if self._memory is not None:
-            self._memory.decrease()
-            self._memory = None
-
-    # TODO do we need this ?
-    cdef inline void close(self):
-        if self._memory is not None:
-            self._memory.decrease()
-            self._memory = None
+        self._memory.decrease()
 
     cdef inline bint written(self, Py_ssize_t nbytes) except 0:
         if nbytes < 0 or nbytes > (self.size - self._end):
@@ -107,7 +99,7 @@ cdef class Chunk:
         memcpy(dest, self._buffer + start, length)
         return length
 
-    # TODO benchmark to use buffer.PyBuffer_FillInfo instead
+    # TODO we can do better flags checking
     def __getbuffer__(self, Py_buffer *buffer, int flags):
         if self._memoryview_taken > 0:
             raise BufferError("Please release previous buffer taken")
@@ -119,6 +111,7 @@ cdef class Chunk:
         buffer.itemsize = 1
         buffer.len = self.size - self._end
         buffer.ndim = 1
+        # TODO how to do this properly ?
         buffer.obj = self
         buffer.readonly = 0
         self._shape[0] = self.size - self._end

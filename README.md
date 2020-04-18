@@ -148,7 +148,7 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Combines find() and take() returning None if s was not found. include_s=True will include it, otherwise skip it
     takeuntil(s, include_s=False)
     # Compares the contents of the buffer with another bytes like object
-    # Zero memory copy if data is in one chunk, or a one-time memory copy if not
+    # Zero memory copy
     __eq__(other)
 
     # This functions behave just like they do in bytearray (more functions can be added)
@@ -159,4 +159,23 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
 ```
 
 ## How ?
+
+### Layout
+All the user facing API is done via the Buffer object.
+
+Buffer holds inside zero or more Chunks. When writing to the buffer, if the last chunk has no free space, a new Memory backed Chunk is requested from the Pool.
+
+Chunks are pointers to a region of a Memory. The first Chunk derived from a Memory is writable, the others are not.
+
+Memory is an malloced memory with reference counting to the different Chunks pointing to it. When the reference count drops to 0, it is returned to the Pool.
+
+Pool holds previously Memory objects which are currently not used. The default implmentation is UnboundedPool which holds all unused Memory allocated in the program lifetime (it has a reset() method to clear it).
+
+### When does memory allocation happen ?
+TBD
+
+### When does memory copying happen ?
+TBD
+
+### Tips for performence
 TBD

@@ -3,6 +3,7 @@ from Cython.Build import cythonize
 import os
 
 
+os.environ['CFLAGS'] = '-O3'
 coverage = os.environ.get('CYTHON_COVERAGE', False) in ('1', 'true', '"true"')
 if coverage:
     setup(ext_modules=cythonize("chunkedbuffer/*.pyx", language_level=3, force=True, compiler_directives={'linetrace': True}))

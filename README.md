@@ -1,6 +1,8 @@
 ## What?
 This library provides an API for stream processing with emphasis on minimizing memory allocations and copying.
 
+It is possible to achieve amortized zero-memory allocation and zero-memory copying if using this library to it's fullest, unlike other solutions such as bytearray, io.BytesIO, etc...
+
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
 ## Usage
@@ -18,17 +20,17 @@ You can then call the find() method to find a given delimiter in the stream or c
 ```python
 idx = b.find(b'\r\n')
 if idx != -1:
-    msg = b.take(idx) # This is not a copy, but a pointer
+    msg = b.take(idx) # This returns a new Buffer object which is a pointer to 'test' in the data, not a copy
     b.skip(2) # We don't need \r\n
 ```
 
 or the same:
 
 ```python
-msg = b.takeuntil(b'\r\n') # Will be None if not found
+msg = b.takeuntil(b'\r\n') # Will return a Buffer points to 'test' or none if the delimiter is not found
 ```
 
-Those methods return a new Buffer which points only to that specific data.
+Those methods return a new Buffer which points only to that specific data without copying it.
 
 You can then pass the Buffer instance to any method which accepts a bytes like object or call bytearray like operations on it such as split(), strip(), etc....
 
@@ -48,7 +50,7 @@ git+git://github.com/tzickel/chunkedbuffer@master#egg=chunkedbuffer
 Replace master with the specific branch or version tag you want.
 
 ## Roadmap
-- [ ] API Finalization
+- [ ] Minimal API Finalization
 - [ ] Choose license
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
@@ -59,7 +61,9 @@ Replace master with the specific branch or version tag you want.
 ```python
 from chunkedbuffer import Buffer
 
+
 if __name__ == "__main__":
+    # A message containing <length> integer then newline seperator, then <length> bytes of the message and a newline seperator again
     msg = b"9\r\nLet's try\r\n6\r\n to pa\r\n7\r\nrse an \r\n5\r\nchunk\r\n2\r\ned\r\n6\r\n messa\r\n7\r\nge like\r\n7\r\n redis \r\n24\r\nor HTTP chunked encoding\r\n4\r\n use\r\n"
     
     # This is a toy chunked message parser to demonstrate some of the API
@@ -67,19 +71,20 @@ if __name__ == "__main__":
     # Since we aren't reading from I/O let's just copy the message inside
     buffer.extend(msg)
     # We will keep the pointers to the message contents in a list
-    chunks = []
-    # length will be None when we need to read the length of the chunk or the number of bytes left to read in a chunk
+    message_parts = []
+    # length will be None when we need to read the length of the part or the number of bytes left to read in a part
     length = None
+
     while True:
         # We have length bytes to read from the message
         if length is not None:
             # In network I/O there might be less to read than length bytes so we do it inside a loop
-            chunk = buffer.take(length)
-            chunk_length = len(chunk)
-            if chunk_length:
-                # Save a pointer to this part of the message for later retreival
-                chunks.append(chunk)
-                length -= chunk_length
+            part = buffer.take(length)
+            part_length = len(part)
+            if part_length:
+                # Save a pointer to this part of the message for later retrieval
+                message_parts.append(part)
+                length -= part_length
             if length == 0:
                 # We don't need the ending \r\n
                 buffer.skip(2)
@@ -97,7 +102,7 @@ if __name__ == "__main__":
             # We also read the \r\n after the length, since int parsing can handle it
             length = int(buffer.take(idx + 2))
     # We create one big Buffer that points to all of the message parts
-    buffer = Buffer.merge(chunks)
+    buffer = Buffer.merge(message_parts)
     # We can check the value inside the newly created Buffer from all the previous pointers
     assert buffer == b"Let's try to parse an chunked message like redis or HTTP chunked encoding use"
     # An Buffer is not hashable, so if you want to use it as a bytes replacment, cast it to bytes explicitly
@@ -120,19 +125,8 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Zero amortized memory allocation (when using the default pool)
     extend(data)
 
-    # Takes multiple Buffers and merges them into one
-    # Zero memory copy
-    @staticmethod
-    merge(buffers)
-
     # Read API
 
-    # Returns a read-only buffer view of the contents
-    # Zero memory copy if data is in one chunk, or a one-time memory copy if not
-    __getbuffer__()
-    # Returns the length
-    # Precomputed
-    __len__()
     # Finds the index (-1 if did not find) of s inside start, end indicies in the Buffer (by default checks all the Buffer)
     # Zero memory copy (unless more than one chunk, and then just copies length of s*2 from each chunk)
     find(s, start=0, end=-1)
@@ -147,12 +141,23 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     skip(nbytes=-1)
     # Combines find() and take() returning None if s was not found. include_s=True will include it, otherwise skip it
     takeuntil(s, include_s=False)
+    # Returns a read-only buffer view of the contents (You don't call this directly, but use a memoryview or anything that accepts the buffer protocol)
+    # Zero memory copy if data is in one chunk, or a one-time memory copy if not
+    __getbuffer__()
+    # Returns the length
+    # Precomputed
+    __len__()
     # Compares the contents of the buffer with another bytes like object
     # Zero memory copy
     __eq__(other)
     # Gets the chunks contained in the buffer, this is best used for zero-coping the data by accessing each Chunk's buffer protocol (with API such as os.writev or socket.sendmsg)
     # Zero memory copy
+
     chunks()
+    # Takes multiple Buffers and merges them into one
+    # Zero memory copy
+    @staticmethod
+    merge(buffers)
 
 
     # This functions behave just like they do in bytearray (more functions can be added)
@@ -167,19 +172,19 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
 ### Layout
 All the user facing API is done via the Buffer object.
 
-Buffer holds inside zero or more Chunks. When writing to the buffer, if the last chunk has no free space, a new Memory backed Chunk is requested from the Pool.
+Buffer holds inside zero or more Chunk objects. When writing to the buffer, if the current chunk has no free space, a new Chunk object which is backed by a Memory object is requested from the Pool object.
 
-Chunks are pointers to a region of a Memory. The first Chunk derived from a Memory is writable, the others are not.
+Chunk objects are pointers to a region of a Memory object. The first Chunk object derived from a Memory object is writable, Chunk objects derived from other Chunk objects are not (views).
 
-Memory is an malloced memory with reference counting to the different Chunks pointing to it. When the reference count drops to 0, it is returned to the Pool.
+Memory object is an malloc'ed memory region with reference counting to the different Chunk objects pointing to it. When the reference count drops to 0, it is returned to the Pool object.
 
-Pool holds previously Memory objects which are currently not used. The default implmentation is UnboundedPool which holds all unused Memory allocated in the program lifetime (it has a reset() method to clear it).
+Pool object holds previously Memory objects which are currently not used. The default implmentation is an UnboundedPool object which holds all unused Memory objects allocated in the program lifetime (it has a reset() method to clear it).
 
 ### When does memory allocation happen ?
-TBD
+For now check the comments in the API section.
 
 ### When does memory copying happen ?
-TBD
+For now check the comments in the API section.
 
 ### Tips for performence
 TBD

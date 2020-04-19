@@ -2,41 +2,22 @@ import pytest
 
 from chunkedbuffer import Buffer
 
-# Helper methods for testing (should I put them in the buffer?)
-def write(buffer, data):
-    buff = buffer.get_buffer()
-    buff_len = len(buff)
-    write_len = min(buff_len, len(data))
-    buff[:write_len] = data[:write_len]
-    buffer.buffer_written(write_len)
-    return write_len
-
-
-def write_all(buffer, data):
-    while data:
-        ret = write(buffer, data)
-        data = data[ret:]
-
-
-def write_exact(buffer, data):
-    l = len(data)
-    buff = buffer.get_buffer(l)
-    buff[:l] = data
-    buffer.buffer_written(l)
-
-
 # Tests
 def test_simple():
     b = Buffer()
+    assert bytes(b) == b''
     b.extend(b'test')
     assert b.take() == b'test'
     assert b.take() == b''
     b.extend(b'test')
     b.extend(b'ing')
     assert b.peek() == b'testing'
-    assert bytes(b.peek()) == b'testing'
+    assert b.peek(3) == b'tes'
+    assert b.peek(300) == b'testing'
+    assert b.peek() == b'testing'
     assert b.take() == b'testing'
     assert b.take() == b''
+    assert b.peek() == b''
 
 
 def test_buffer_bytes():
@@ -45,6 +26,7 @@ def test_buffer_bytes():
     assert b == b'test'
     b.extend(b'ing')
     assert b == b'testing'
+    assert b.peek(3) == b'tes'
 
 
 def test_buffer_len():
@@ -124,9 +106,6 @@ def test_buffer_find():
     b.extend(b'a' * 2046)
     b.skip(2046)
     assert b.find(b'\r\n') == -1
-    print(bytes(b.peek()))
-    print(b._debug())
-    print('---')
     assert b.find(b'test') == 0
     b.skip(1)
     assert b.find(b'test') == -1
@@ -139,17 +118,18 @@ def test_buffer_takeuntil():
     b.extend(b'\r\ning')
     assert b.takeuntil(b'\r\n') == b'test'
     assert b.takeuntil(b'\r\n') == None
-    assert b.take() == b'ing'
+    assert b.takeuntil(b'ing', True) == b'ing'
+    assert b.take() == b''
 
 
-def test_buffer_getchunks():
+def test_buffer_chunks():
     b = Buffer(minimum_chunk_size=4)
     with pytest.raises(ValueError):
-        b.get_chunks()
+        b.chunks()
     b.extend(b'test')
     b.extend(b'ing')
     with pytest.raises(ValueError):
-        b.get_chunks()
+        b.chunks()
     a = b.take()
-    assert len(a.get_chunks()) == 2
-    assert b''.join(a.get_chunks()) == b'testing'
+    assert len(list(a.chunks())) == 2
+    assert b''.join(a.chunks()) == b'testing'

@@ -1,5 +1,5 @@
 ## What?
-This library provides an API for stream processing with emphesis on minimizing memory allocations and copying.
+This library provides an API for stream processing with emphasis on minimizing memory allocations and copying.
 
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
@@ -38,14 +38,6 @@ assert msg.strip(b't') == b'es'
 
 At the bottom of the document there are technical notes for those who want to understand the inner-workings of this library.
 
-## Roadmap
-- [ ] API Finalization
-- [ ] Choose license
-- [ ] Resolve all TODO in code
-- [ ] More test coverage
-- [ ] A pure python version for PyPy
-- [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
-
 ## Installing
 For now you can install this via this github repository by pip installing or adding to your requirements.txt file:
 
@@ -54,6 +46,14 @@ git+git://github.com/tzickel/chunkedbuffer@master#egg=chunkedbuffer
 ```
 
 Replace master with the specific branch or version tag you want.
+
+## Roadmap
+- [ ] API Finalization
+- [ ] Choose license
+- [ ] Resolve all TODO in code
+- [ ] More test coverage
+- [ ] A pure python version for PyPy
+- [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
 
 ## Example
 ```python
@@ -152,7 +152,7 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     __eq__(other)
     # Gets the chunks contained in the buffer, this is best used for zero-coping the data by accessing each Chunk's buffer protocol (with API such as os.writev or socket.sendmsg)
     # Zero memory copy
-    getchunks()
+    chunks()
 
 
     # This functions behave just like they do in bytearray (more functions can be added)

@@ -5,20 +5,11 @@ include "consts.pxi"
 
 cimport cython
 
-# TODO we can invalidate cache on BAW and on takeuntil
-
-# TODO (speed) we can initilize it only when Buffer has multiple chunks
 from collections import deque
 from .chunk cimport Chunk, Memory
 from .pool cimport global_pool, Pool
 from .bytearraywrapper cimport ByteArrayWrapper
 from libc.string cimport memcpy, memcmp
-# TODO this is bad, remove it and use a proper pointer arithemetic cast
-from libc.stdint cimport uintptr_t
-# TODO nogil ? really ?
-cdef extern from "string.h" nogil:
-    # TODO (windows) we can use bytearray.find instead of this (do benchmark between them)
-    void *memmem(const void *, Py_ssize_t, const void *, Py_ssize_t)
 
 # TODO in windows I need malloc.h ?
 cdef extern from "alloca.h":
@@ -32,7 +23,7 @@ from cpython.bytes cimport PyBytes_AS_STRING
 # TODO document that the code is async safe but not thread safe
 # TODO text encoding per read ?
 # TODO (api) should commands have an optional start index ?
-# TODO have api to get the chunks buffer sfor stuff like writev !
+# TODO we can invalidate cache on BAW and on takeuntil
 
 
 # TODO any other way to return a zero length bytes ?
@@ -533,11 +524,11 @@ cdef class Buffer:
         baw._unsafe_set_memory_from_pointer(addr, length)
         return baw
 
-    def get_chunks(self):
+    def chunks(self):
         if not self._not_origin:
             raise ValueError('Cannot get chunks of writable Buffer, .take() the data first')
         if self._chunks is not None:
-            return self._chunks
+            return iter(self._chunks)
         elif self._chunks_length == 1:
             return [self._last]
         else:

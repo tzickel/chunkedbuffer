@@ -50,12 +50,12 @@ git+git://github.com/tzickel/chunkedbuffer@master#egg=chunkedbuffer
 Replace master with the specific branch or version tag you want.
 
 ## Roadmap
-- [ ] Minimal API Finalization
+- [ ] First draft API Finalization
 - [ ] Choose license
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
 - [ ] A pure python version for PyPy
-- [ ] Support for holding generic bytes like objects inside the buffer for optimizing APIs such as scatter I/O
+- [ ] Support extend to hold bytes like objects instead of coping them
 
 ## Example
 ```python
@@ -111,28 +111,33 @@ if __name__ == "__main__":
 
 ## API
 ```python
-Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
+# minimum_chunk_size = The minimum chunk size to be aqquired from the pool
+# pool = Which pool to take new Memory objects from, current default global_pool is an UnboundedPool
+Buffer(minimum_chunk_size=2048, pool=global_pool)
     # Write API
 
-    # Must be called each time data is ready to be written
+    # For API which accept a buffer to write into:
+
     # The returned chunk will have space for 1 or more bytes of data (currently sizehint is ignored, see minimum_chunk_size in constructor)
-    # Zero amortized memory allocation (when using the default pool)
+    # Complexity: Zero amortized memory allocation (when using the default pool)
+    # Notice: Must be called each time data is ready to be written
     get_chunk(sizehint=-1)
     # Must be called after each get_chunk and data that's written with the number of bytes written
+    # Complexity: Constant
     chunk_written(nbytes)
 
+    # For API which already provide data to be added to the buffer:
+
     # Can be used as an alternative if you already have the data you want to add to the buffer
-    # Zero amortized memory allocation (when using the default pool)
+    # Complexity: Zero amortized memory allocation (when using the default pool)
     extend(data)
 
     # Read API
 
-    # Finds the index (-1 if did not find) of s inside start, end indicies in the Buffer (by default checks all the Buffer)
-    # Zero memory copy (unless more than one chunk, and then just copies length of s*2 from each chunk)
-    find(s, start=0, end=-1)
-    # Returns a new Buffer which points to at most nbytes bytes (or all current data if nbytes == -1)
-    # Zero memory copy
-    peek(nbytes=-1)
+    # The distinction between modifing and non-modifing methods is a cosmetic one, both have same complexity analysis.
+
+    # Modifing methods
+
     # Returns a new Buffer which points to at most nbytes nbytes (or all current data if nbytes == -1) removes data from current Buffer
     # Zero memory copy
     take(nbytes=-1)
@@ -141,6 +146,15 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     skip(nbytes=-1)
     # Combines find() and take() returning None if s was not found. include_s=True will include it, otherwise skip it
     takeuntil(s, include_s=False)
+
+    # Non-modifing methods
+
+    # Finds the index (-1 if did not find) of s inside start, end indicies in the Buffer (by default checks all the Buffer)
+    # Zero memory copy (unless more than one chunk, and then just copies length of s*2 from each chunk)
+    find(s, start=0, end=-1)
+    # Returns a new Buffer which points to at most nbytes bytes (or all current data if nbytes == -1)
+    # Zero memory copy
+    peek(nbytes=-1)
     # Returns a read-only buffer view of the contents (You don't call this directly, but use a memoryview or anything that accepts the buffer protocol)
     # Zero memory copy if data is in one chunk, or a one-time memory copy if not
     __getbuffer__()
@@ -150,9 +164,8 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     # Compares the contents of the buffer with another bytes like object
     # Zero memory copy
     __eq__(other)
-    # Gets the chunks contained in the buffer, this is best used for zero-coping the data by accessing each Chunk's buffer protocol (with API such as os.writev or socket.sendmsg)
+    # Gets the chunks contained in the buffer, this is best used for zero-coping the data by accessing each Chunk's buffer protocol (with API such as os.writev or socket.sendmsg or bytes.join)
     # Zero memory copy
-
     chunks()
     # Takes multiple Buffers and merges them into one
     # Zero memory copy
@@ -166,6 +179,14 @@ Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool)
     split(sep=None, maxsplit=-1)
     strip(bytes=None)
 ```
+
+### API Roadmap
+- [ ] Add a specific API for reading lines takeline()
+- [ ] Add start option to takeuntil and takeline
+- [ ] Add Buffer constructor parameter, maximum_chunk_size
+- [ ] Add Buffer constructor parameter, cutoff_size
+- [ ] Add Buffer constructor parameter, release_fast_to_pool
+- [ ] Support Buffer without any Pool usage
 
 ## How ?
 
@@ -186,5 +207,5 @@ For now check the comments in the API section.
 ### When does memory copying happen ?
 For now check the comments in the API section.
 
-### Tips for performence
-TBD
+### Tips for performance
+For now check the Buffer constructor options in the API section.

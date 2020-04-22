@@ -376,8 +376,8 @@ cdef class Buffer:
             idx = self.find(s)
         if idx == -1:
             self._takeuntil_cache_object = s
-            # TODO is this correct ? (I think by checking yes)
-            self._takeuntil_cache_index = self._length
+            # TODO this requires len(s) for now
+            self._takeuntil_cache_index = max(0, self._length - len(s) + 1)
             return None
         self._takeuntil_cache_object = None
         if include_s:
@@ -525,6 +525,9 @@ cdef class Buffer:
         return baw
 
     def chunks(self):
+        # TODO do a better blocking behaviour of running .chunks() on a writable buffer (there should be a buffer distinction of readable and writable buffers as a whole)
+        if self._last._writable:
+            self._last.readonly()
         if not self._not_origin:
             raise ValueError('Cannot get chunks of writable Buffer, .take() the data first')
         if self._chunks is not None:

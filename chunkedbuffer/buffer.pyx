@@ -9,7 +9,7 @@ from collections import deque
 from .chunk cimport Chunk, Memory
 from .pool cimport global_pool, Pool
 from .bytearraywrapper cimport ByteArrayWrapper
-from libc.string cimport memcpy, memcmp
+from libc.string cimport memcpy, memcmp, memchr
 
 # TODO in windows I need malloc.h ?
 cdef extern from "alloca.h":
@@ -133,28 +133,33 @@ cdef class Buffer:
 
     # Read API
     # TODO (optimization) cache last check
-    # TODO It's much simpler to search for \n and return till that, so for now we are doing that (no include_seperator option)
-    """def takeline(self):
+    # TODO include start, end like find ?
+    def takeline(self, include_seperator=False):
         cdef:
-            Py_ssize_t idx, res_idx
+            Py_ssize_t idx, res_idx, chunk_length
             Buffer ret
-            int prev_chunk_ends_with_cr
+            bint prev_chunk_ends_with_cr
+            Chunk chunk
+            char *res_ptr
 
         if self._chunks_length == 0:
             return None
         elif self._chunks_length == 1:
-            idx = self.bytearraywrapper().find(b'\n')
+            chunk = self._last
+            res_ptr = <char *>memchr(chunk._buffer + chunk._start, 10, chunk._end - chunk._start)
+            if res_ptr is NULL:
+                return None
+            idx = res_ptr - chunk._buffer - chunk._start
             if idx == -1:
                 return None
-            return self.take(idx + 1)
-            if include_seperator:
+            if include_seperator is True:
                 return self.take(idx + 1)
             else:
                 if idx == 0:
                     self.skip(1)
                     return Buffer()
                 else:
-                    if self._last._buffer[idx - 1] == 13:
+                    if self._last._buffer[self._last._start + idx - 1] == 13:
                         ret = self.take(idx - 1)
                         self.skip(2)
                     else:
@@ -163,20 +168,42 @@ cdef class Buffer:
                     return ret
         else:
             res_idx = 0
-            prev_chunk_ends_with_cr = 0 # First chunk
+            prev_chunk_ends_with_cr = False
             for chunk in self._chunks:
-                chunk_length = chunk.length()
-                idx = self.bytearraywrapper_with_address_and_length(<char *>chunk._buffer + chunk._start, chunk_length).find(b'\n')
-                if idx == -1:
+                chunk_length = chunk._end - chunk._start
+                res_ptr = <char *>memchr(chunk._buffer + chunk._start, 10, chunk_length)
+                if res_ptr is NULL:
                     if chunk._buffer[chunk._start + chunk_length] == 13:
-                        prev_chunk_ends_with_cr = 1 # Yes
+                        prev_chunk_ends_with_cr = True
                     else:
-                        prev_chunk_ends_with_cr = 2 # No
+                        prev_chunk_ends_with_cr = False
                     res_idx += chunk_length
                 else:
+                    idx = res_ptr - chunk._buffer - chunk._start
                     res_idx += idx
-                    return res_idx
-            return -1"""
+                    if include_seperator is True:
+                        return self.take(res_idx + 1)
+                    else:
+                        if res_idx == 0:
+                            self.skip(1)
+                            return Buffer()
+                        else:
+                            if idx == 0:
+                                if prev_chunk_ends_with_cr:
+                                    ret = self.take(res_idx - 1)
+                                    self.skip(2)
+                                else:
+                                    ret = self.take(idx)
+                                    self.skip(1)
+                            else:
+                                if chunk._buffer[chunk._start + idx - 1] == 13:
+                                    ret = self.take(res_idx - 1)
+                                    self.skip(2)
+                                else:
+                                    ret = self.take(idx)
+                                    self.skip(1)
+                            return ret
+            return None
 
     cpdef Py_ssize_t find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1) except -2:
         cdef:
@@ -466,7 +493,7 @@ cdef class Buffer:
         elif self._chunks_length > 1:
             chunksiter = self._chunks
         for chunk in chunksiter:
-            chunks.append((chunk._start, chunk._end, chunk._writable, chunk._memory, chunk._memory.size, chunk._memory.reference))
+            chunks.append((chunk._start, chunk._end, chunk._readonly, chunk._memory, chunk._memory.size, chunk._memory.reference))
         ret = {'chunks': chunks, 'current_chunk_size': self._current_chunk_size}
         return ret
 

@@ -146,8 +146,9 @@ Buffer(minimum_chunk_size=2048, pool=global_pool)
     skip(nbytes=-1)
     # Combines find() and take() returning None if s was not found. include_s=True will include it, otherwise skip it
     takeuntil(s, include_s=False)
-    # A faster version of takeuntil() which will take until \n found
-    takeline(s)
+    # A faster version of takeuntil() which will take until \n found, if include_seperator is False, will remove ending \r\n or \n
+    # Zero memory copy
+    takeline(s, include_seperator=False)
 
     # Non-modifing methods
 
@@ -183,7 +184,6 @@ Buffer(minimum_chunk_size=2048, pool=global_pool)
 ```
 
 ### API Roadmap
-- [ ] Add a specific API for reading lines takeline()
 - [ ] Add start option to takeuntil and takeline
 - [ ] Add Buffer constructor parameter, maximum_chunk_size
 - [ ] Add Buffer constructor parameter, cutoff_size

@@ -8,13 +8,15 @@ cimport cython
 
 
 cdef class Pool:
-    cdef Chunk get_chunk(self, Py_ssize_t size):
+    cdef Chunk get_chunk(self, size):
         raise NotImplementedError()
 
     cdef void return_memory(self, Memory memory):
         raise NotImplementedError()
 
 
+"""
+# TODO update to new lean syntax
 @cython.final
 cdef class SameSizePool:
     def __cinit__(self, Py_ssize_t size):
@@ -24,15 +26,16 @@ cdef class SameSizePool:
         self._queue_pop = self._queue.pop
         self._length = 0
 
-    cdef Chunk get_chunk(self, Py_ssize_t size):
+    cdef Chunk get_chunk(self, size):
         if self._length:
             self._length -= 1
-            return Chunk(self._queue_pop())
-        return Chunk(Memory(self._size, self))
+            return Chunk()._init(self._queue_pop())
+        return Chunk()._init(Memory(self._size, self))
     
     cdef void return_memory(self, Memory memory):
         self._length += 1
         self._queue_append(memory)
+"""
 
 
 @cython.final
@@ -40,21 +43,28 @@ cdef class UnboundedPool:
     def __cinit__(self):
         self._memory = {}
 
-    cdef Chunk get_chunk(self, Py_ssize_t size):
+    cdef Chunk get_chunk(self, size):
+        cdef:
+            Chunk chunk
         # TODO implment fast power of 2 calculation
         #size = 1 << (size - 1).bit_length()
         memory = self._memory.get(size)
 
+        chunk = Chunk()
         if memory:
-            return Chunk(memory.pop())
+            chunk._init(memory.pop())
         else:
-            return Chunk(Memory(size, self))
+            chunk._init(Memory(size, self))
+        return chunk
 
     cdef void return_memory(self, Memory memory):
         self._memory.setdefault(memory.size, deque()).append(memory)
 
     def reset(self):
         self._memory = {}
+
+    def _debug(self):
+        return self._memory
 
 
 global_pool = UnboundedPool()

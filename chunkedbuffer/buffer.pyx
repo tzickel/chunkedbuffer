@@ -37,10 +37,7 @@ cdef bytes _empty_byte = bytes(b'')
 cdef class Buffer:
     cdef:
         Pool _pool
-        object _chunks
-        object _chunks_append
-        object _chunks_popleft
-        object _chunks_clear
+        object _chunks, _chunks_append, _chunks_popleft, _chunks_clear
         Py_ssize_t _chunks_length
         Py_ssize_t _length
         Py_ssize_t _minimum_chunk_size, _current_chunk_size
@@ -61,7 +58,7 @@ cdef class Buffer:
         self._release_fast_to_pool = release_fast_to_pool
 
     # TODO (misc) add counters for how much compact has been done
-    cdef void _compact(self):
+    cdef bint _compact(self) except False:
         cdef:
             Memory memory
             Chunk chunk, new_chunk
@@ -72,17 +69,20 @@ cdef class Buffer:
         if self._chunks_length > 1:
             # TODO should we put it in the pool (it's size may be too wonky, we can ofcourse take a larger portion and limit it)
             memory = Memory(self._length, None)
-            new_chunk = Chunk(memory)
+            new_chunk = Chunk()
+            new_chunk._init(memory)
             buf = memory._buffer
             for chunk in self._chunks:
-                length = chunk.length()
+                length = chunk._end - chunk._start
                 chunk.copy_to(buf, 0, length)
                 buf += length
             new_chunk._end = self._length
-            self._chunks_clear()
-            self._chunks_append(new_chunk)
+            with cython.optimize.unpack_method_calls(False):
+                self._chunks_clear()
+                self._chunks_append(new_chunk)
             self._chunks_length = 1
             self._last = new_chunk
+        return True
 
     def __getbuffer__(self, Py_buffer *buffer, int flags):
         if self._chunks_length > 1:
@@ -97,40 +97,94 @@ cdef class Buffer:
 
     # TODO (cython) validate that bint except False is ok
     cdef inline bint _initialize_chunks(self) except False:
-        if self._chunks_length == 1 and self._chunks is None:
+        with cython.optimize.unpack_method_calls(False):
             chunk = deque()
-            self._chunks = chunk
-            self._chunks_append = chunk.append
-            self._chunks_popleft = chunk.popleft
-            self._chunks_clear = chunk.clear
-            if self._last is not None:
+        self._chunks = chunk
+        self._chunks_append = chunk.append
+        self._chunks_popleft = chunk.popleft
+        self._chunks_clear = chunk.clear
+        if self._last is not None:
+            with cython.optimize.unpack_method_calls(False):
                 self._chunks_append(self._last)
         return True
 
-    cdef inline void _add_chunk(self, Chunk chunk):
+    cdef inline bint _add_chunk(self, Chunk chunk) except False:
         self._not_origin = True
-        chunk.readonly()
-        self._initialize_chunks()
+        chunk._readonly = True
+        if self._chunks_length == 1 and self._chunks is None:
+            self._initialize_chunks()
         if self._chunks_append is not None:
-            self._chunks_append(chunk)
+            with cython.optimize.unpack_method_calls(False):
+                self._chunks_append(chunk)
         self._chunks_length += 1
-        self._length += chunk.length()
+        self._length += chunk._end - chunk._start
         self._last = chunk
+        return True
 
-    cdef inline void _add_chunk_without_length(self, Chunk chunk):
-        self._initialize_chunks()
+    cdef inline bint _add_chunk_without_length(self, Chunk chunk) except False:
+        if self._chunks_length == 1 and self._chunks is None:
+            self._initialize_chunks()
         if self._chunks_append is not None:
-            self._chunks_append(chunk)
+            with cython.optimize.unpack_method_calls(False):
+                self._chunks_append(chunk)
         self._chunks_length += 1
         self._last = chunk
+        return True
 
     # Read API
+    # TODO (optimization) cache last check
+    # TODO It's much simpler to search for \n and return till that, so for now we are doing that (no include_seperator option)
+    """def takeline(self):
+        cdef:
+            Py_ssize_t idx, res_idx
+            Buffer ret
+            int prev_chunk_ends_with_cr
+
+        if self._chunks_length == 0:
+            return None
+        elif self._chunks_length == 1:
+            idx = self.bytearraywrapper().find(b'\n')
+            if idx == -1:
+                return None
+            return self.take(idx + 1)
+            if include_seperator:
+                return self.take(idx + 1)
+            else:
+                if idx == 0:
+                    self.skip(1)
+                    return Buffer()
+                else:
+                    if self._last._buffer[idx - 1] == 13:
+                        ret = self.take(idx - 1)
+                        self.skip(2)
+                    else:
+                        ret = self.take(idx)
+                        self.skip(1)
+                    return ret
+        else:
+            res_idx = 0
+            prev_chunk_ends_with_cr = 0 # First chunk
+            for chunk in self._chunks:
+                chunk_length = chunk.length()
+                idx = self.bytearraywrapper_with_address_and_length(<char *>chunk._buffer + chunk._start, chunk_length).find(b'\n')
+                if idx == -1:
+                    if chunk._buffer[chunk._start + chunk_length] == 13:
+                        prev_chunk_ends_with_cr = 1 # Yes
+                    else:
+                        prev_chunk_ends_with_cr = 2 # No
+                    res_idx += chunk_length
+                else:
+                    res_idx += idx
+                    return res_idx
+            return -1"""
+
     cpdef Py_ssize_t find(self, object s, Py_ssize_t start=0, Py_ssize_t end=-1) except -2:
         cdef:
             Py_buffer buf_s
             Py_ssize_t res_idx, idx, chunk_length, prev_chunk_length, how_much, how_much1, how_much2
             Chunk chunk, prev_chunk
             unsigned char* tmp
+            ByteArrayWrapper baw
 
         if start < 0 or end < -1:
             raise ValueError("Not supporting negative indexes")
@@ -149,7 +203,7 @@ cdef class Buffer:
                 if buf_s.len == 1:
                     res_idx = 0
                     for chunk in self._chunks:
-                        chunk_length = chunk.length()
+                        chunk_length = chunk._end - chunk._start
                         if start >= chunk_length:
                             res_idx += chunk_length
                             start -= chunk_length
@@ -173,7 +227,7 @@ cdef class Buffer:
                     res_idx = 0
                     prev_chunk = None
                     for chunk in self._chunks:
-                        chunk_length = chunk.length()
+                        chunk_length = chunk._end - chunk._start
                         if prev_chunk is not None:
                             how_much1 = prev_chunk.copy_to(tmp, -buf_s.len + 1, buf_s.len - 1)
                             how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
@@ -231,7 +285,7 @@ cdef class Buffer:
         else:
             ret = Buffer()
             for chunk in self._chunks:
-                chunk_length = chunk.length()
+                chunk_length = chunk._end - chunk._start
                 if nbytes < chunk_length:
                     if nbytes:
                         ret._add_chunk(chunk.clone_partial(nbytes))
@@ -247,6 +301,7 @@ cdef class Buffer:
             Chunk last, chunk
             Py_ssize_t last_length, chunk_length, to_remove
 
+        # TODO we could optimize the index instead
         self._takeuntil_cache_object = None
         
         if nbytes < 0:
@@ -261,7 +316,7 @@ cdef class Buffer:
         elif self._chunks_length == 1:
             ret = Buffer()
             last = self._last
-            last_length = last.length()
+            last_length = last._end - last._start
             if nbytes == last_length:
                 # TODO add it to the multi chunk part as well
                 # We don't give it back here for optimization
@@ -270,29 +325,30 @@ cdef class Buffer:
                     self._chunks_clear()
                 self._chunks_length = 0
                 self._last = None"""
-                # Is there any better place for optimization ere?
-                if last.free() != 0:
+                # Is there any better place for optimization here?
+                if last.size - last._end != 0:
                     ret._add_chunk(last.clone())
-                    last.consume(nbytes)
+                    last._start += nbytes
                 else:
                     ret._add_chunk(last)
                     if self._chunks is not None:
-                        self._chunks_clear()
+                        with cython.optimize.unpack_method_calls(False):
+                            self._chunks_clear()
                     self._chunks_length = 0
                     self._last = None
             else:
                 ret._add_chunk(last.clone_partial(nbytes))
-                last.consume(nbytes)
+                last._start += nbytes
             return ret
         else:
             ret = Buffer()
             to_remove = 0
             for chunk in self._chunks:
-                chunk_length = chunk.length()
+                chunk_length = chunk._end - chunk._start
                 if nbytes < chunk_length:
                     if nbytes:
                         ret._add_chunk(chunk.clone_partial(nbytes))
-                        chunk.consume(nbytes)
+                        chunk._start += nbytes
                     break
                 else:
                     nbytes -= chunk_length
@@ -300,12 +356,14 @@ cdef class Buffer:
                     to_remove += 1
 
             if to_remove == self._chunks_length:
-                self._chunks_clear()
+                with cython.optimize.unpack_method_calls(False):
+                    self._chunks_clear()
                 self._chunks_length = 0
                 self._last = None
             else:
                 while to_remove:
-                    self._chunks_popleft()
+                    with cython.optimize.unpack_method_calls(False):
+                        self._chunks_popleft()
                     self._chunks_length -= 1
                     to_remove -= 1
 
@@ -316,6 +374,7 @@ cdef class Buffer:
             Chunk last, chunk
             Py_ssize_t last_length, to_remove, chunk_length, ret
 
+        # TODO we can optimize this
         self._takeuntil_cache_object = None
 
         if nbytes < 0:
@@ -329,24 +388,29 @@ cdef class Buffer:
             return 0
         elif self._chunks_length == 1:
             last = self._last
-            last_length = last.length()
+            last_length = last._end - last._start
             if nbytes == last_length:
-                if self._chunks is not None:
-                    self._chunks_clear()
-                self._chunks_length = 0
-                self._last = None
+                if last._memory.reference == 1:
+                    last._start = 0
+                    last._end = 0
+                else:
+                    if self._chunks is not None:
+                        with cython.optimize.unpack_method_calls(False):
+                            self._chunks_clear()
+                    self._chunks_length = 0
+                    self._last = None
             else:
-                last.consume(nbytes)
+                last._start += nbytes
             return nbytes
         else:
             ret = 0
             to_remove = 0
             for chunk in self._chunks:
-                chunk_length = chunk.length()
+                chunk_length = chunk._end - chunk._start
                 if nbytes < chunk_length:
                     if nbytes:
                         ret += nbytes
-                        chunk.consume(nbytes)
+                        chunk._start += nbytes
                     break
                 else:
                     nbytes -= chunk_length
@@ -354,17 +418,20 @@ cdef class Buffer:
                     to_remove += 1
 
             if to_remove == self._chunks_length:
-                self._chunks_clear()
+                with cython.optimize.unpack_method_calls(False):
+                    self._chunks_clear()
                 self._chunks_length = 0
                 self._last = None
             else:
                 while to_remove:
-                    self._chunks_popleft()
+                    with cython.optimize.unpack_method_calls(False):
+                        self._chunks_popleft()
                     self._chunks_length -= 1
                     to_remove -= 1
 
             return ret
 
+    # TODO this requires len(s) for now
     def takeuntil(self, s, bint include_s=False):
         cdef:
             Py_ssize_t idx
@@ -376,7 +443,6 @@ cdef class Buffer:
             idx = self.find(s)
         if idx == -1:
             self._takeuntil_cache_object = s
-            # TODO this requires len(s) for now
             self._takeuntil_cache_index = max(0, self._length - len(s) + 1)
             return None
         self._takeuntil_cache_object = None
@@ -406,24 +472,25 @@ cdef class Buffer:
 
     # Write API
     # TODO (document) we ignore sizehint for now...
+    # buffer.pyx:475:25: Exception clause not allowed for function returning Python object ??
     cpdef Chunk get_chunk(self, Py_ssize_t sizehint=-1):
         cdef:
             Chunk chunk
             bint can_reuse
 
         can_reuse = False
-        if self._last is not None:
-            chunk = self._last
+        chunk = self._last
+        if chunk is not None:
             # If we are the only users of this Chunk we can simply reset it.
             if chunk._memory.reference == 1 and self._length == 0:
                 chunk._start = 0
                 chunk._end = 0
                 can_reuse = True
-            elif chunk.free() != 0:
+            elif chunk.size - chunk._end != 0:
                 can_reuse = True
     
         # The chunk will be writable as long as we created it (and this is not a subview)
-        if can_reuse and chunk._writable:
+        if can_reuse and chunk._readonly is False:
             return chunk
         else:
             chunk = self._pool.get_chunk(self._current_chunk_size)
@@ -432,16 +499,18 @@ cdef class Buffer:
             return chunk
 
     # TODO (safety) make sure that get_chunk was called !
-    cpdef void chunk_written(self, Py_ssize_t nbytes):
+    cpdef bint chunk_written(self, Py_ssize_t nbytes) except False:
         cdef:
             Chunk last
             Py_ssize_t last_size
 
         if nbytes == 0:
-            return
+            return True
         last = self._last
-        last.written(nbytes)
         last_size = last.size
+        # TODO throw error here if writing past end ?
+        nbytes = min(nbytes, last_size - last._end)
+        last._end += nbytes
         self._length += nbytes
         if nbytes == last_size:
             self._current_chunk_size <<= 1
@@ -451,6 +520,7 @@ cdef class Buffer:
             if self._number_of_lower_than_expected > 10:
                 self._number_of_lower_than_expected = 0
                 self._current_chunk_size >>= 1
+        return True
 
     def extend(self, data):
         cdef:
@@ -526,11 +596,12 @@ cdef class Buffer:
 
     def chunks(self):
         # TODO do a better blocking behaviour of running .chunks() on a writable buffer (there should be a buffer distinction of readable and writable buffers as a whole)
-        if self._last._writable:
-            self._last.readonly()
+        if not self._last._readonly:
+            self._last._readonly = True
         if not self._not_origin:
             raise ValueError('Cannot get chunks of writable Buffer, .take() the data first')
         if self._chunks is not None:
+            # TODO can we modify while the iter is given ?
             return iter(self._chunks)
         elif self._chunks_length == 1:
             return [self._last]
@@ -556,7 +627,7 @@ cdef class Buffer:
             else:
                 ptr = buf.buf
                 for chunk in self._chunks:
-                    length = chunk.length()
+                    length = chunk._end - chunk._start
                     if memcmp(ptr, chunk._buffer + chunk._start, length) != 0:
                         return False
                     ptr += length

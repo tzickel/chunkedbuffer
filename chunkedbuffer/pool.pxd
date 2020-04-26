@@ -3,7 +3,7 @@ cimport cython
 
 
 cdef class Pool:
-    cdef Chunk get_chunk(self, Py_ssize_t size)
+    cdef Chunk get_chunk(self, size)
     cdef void return_memory(self, Memory memory)
 
 
@@ -15,7 +15,7 @@ cdef class SameSizePool(Pool):
         object _queue_pop
         Py_ssize_t _length
 
-    cdef Chunk get_chunk(self, Py_ssize_t size)
+    cdef Chunk get_chunk(self, size)
     cdef void return_memory(self, Memory memory)
 
 
@@ -23,7 +23,7 @@ cdef class UnboundedPool(Pool):
     cdef:
         dict _memory
 
-    cdef Chunk get_chunk(self, Py_ssize_t size)
+    cdef Chunk get_chunk(self, size)
     cdef void return_memory(self, Memory memory)
 
 

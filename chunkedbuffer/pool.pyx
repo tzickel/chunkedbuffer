@@ -58,7 +58,12 @@ cdef class UnboundedPool:
         return chunk
 
     cdef void return_memory(self, Memory memory):
-        self._memory.setdefault(memory.size, deque()).append(memory)
+        entry = self._memory.get(memory.size, None)
+        if entry is None:
+            with cython.optimize.unpack_method_calls(False):
+                entry = self._memory[memory.size] = deque()
+        entry.append(memory)
+        #self._memory.setdefault(memory.size, deque()).append(memory)
 
     def reset(self):
         self._memory = {}

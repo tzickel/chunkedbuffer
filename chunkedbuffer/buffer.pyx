@@ -581,6 +581,7 @@ cdef class Buffer:
             Chunk chunk
 
         ret = Buffer()
+        ret._not_origin = True
         for buffer in buffers:
             if buffer._chunks_length == 1:
                 ret._add_chunk(buffer._last.clone())

@@ -5,7 +5,7 @@ include "consts.pxi"
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
-from cpython cimport buffer, Py_buffer
+from cpython cimport buffer, Py_buffer, PyBuffer_FillInfo, Py_INCREF, PyBUF_FORMAT, PyBUF_STRIDES, PyBUF_ND
 cimport cython
 
 
@@ -81,7 +81,16 @@ cdef class Chunk:
         memcpy(dest, self._buffer + start, length)
         return length
 
-    # TODO we can do better flags checking
+    def __getbuffer__(self, Py_buffer *buffer, int flags):
+        if self._readonly:
+            PyBuffer_FillInfo(buffer, self, <void *>(self._buffer + self._start), self._end - self._start, 1, flags)
+        else:
+            PyBuffer_FillInfo(buffer, self, <void *>(self._buffer + self._end), self.size - self._end, 0, flags)
+            if self._memoryview_taken > 0:
+                raise BufferError("Please release previous buffer taken")
+        self._memoryview_taken += 1
+
+    """
     def __getbuffer__(self, Py_buffer *buffer, int flags):
         if self._readonly:
             buffer.buf = &(self._buffer[self._start])
@@ -93,17 +102,27 @@ cdef class Chunk:
             buffer.buf = &(self._buffer[self._end])
             buffer.len = self.size - self._end
             buffer.readonly = 0
-        buffer.format = 'B'
-        buffer.internal = NULL
+        # TODO (cython) can we do this better ?
+        buffer.obj = self
+        Py_INCREF(self)
         buffer.itemsize = 1
         buffer.ndim = 1
-        # TODO how to do this properly ?
-        buffer.obj = self
-        self._shape[0] = buffer.len
-        buffer.shape = self._shape
-        buffer.strides = self._strides
+        if flags & PyBUF_FORMAT != PyBUF_FORMAT:
+            buffer.format = NULL
+        else:
+            buffer.format = 'B'
+        if flags & PyBUF_ND != PyBUF_ND:
+            buffer.shape = NULL
+        else:
+            self._shape[0] = buffer.len
+            buffer.shape = self._shape
+        if flags & PyBUF_STRIDES != PyBUF_STRIDES:
+            buffer.strides = NULL
+        else:
+            buffer.strides = self._strides
         buffer.suboffsets = NULL
-        self._memoryview_taken += 1
+        buffer.internal = NULL
+        self._memoryview_taken += 1"""
 
     def __releasebuffer__(self, Py_buffer *buffer):
         self._memoryview_taken -= 1

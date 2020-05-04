@@ -669,3 +669,6 @@ cdef class Buffer:
 
     def strip(self, bytes=None):
         return self.bytearraywrapper().strip(bytes)
+
+    def splitlines(self, keepends=False):
+        return self.bytearraywrapper().splitlines(keepends)

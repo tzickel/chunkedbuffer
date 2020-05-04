@@ -5,7 +5,7 @@ include "consts.pxi"
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
-from cpython cimport buffer, Py_buffer, PyBuffer_FillInfo, Py_INCREF, PyBUF_FORMAT, PyBUF_STRIDES, PyBUF_ND
+from cpython cimport Py_buffer, PyBuffer_FillInfo
 cimport cython
 
 
@@ -89,40 +89,6 @@ cdef class Chunk:
             if self._memoryview_taken > 0:
                 raise BufferError("Please release previous buffer taken")
         self._memoryview_taken += 1
-
-    """
-    def __getbuffer__(self, Py_buffer *buffer, int flags):
-        if self._readonly:
-            buffer.buf = &(self._buffer[self._start])
-            buffer.len = self._end - self._start
-            buffer.readonly = 1
-        else:
-            if self._memoryview_taken > 0:
-                raise BufferError("Please release previous buffer taken")
-            buffer.buf = &(self._buffer[self._end])
-            buffer.len = self.size - self._end
-            buffer.readonly = 0
-        # TODO (cython) can we do this better ?
-        buffer.obj = self
-        Py_INCREF(self)
-        buffer.itemsize = 1
-        buffer.ndim = 1
-        if flags & PyBUF_FORMAT != PyBUF_FORMAT:
-            buffer.format = NULL
-        else:
-            buffer.format = 'B'
-        if flags & PyBUF_ND != PyBUF_ND:
-            buffer.shape = NULL
-        else:
-            self._shape[0] = buffer.len
-            buffer.shape = self._shape
-        if flags & PyBUF_STRIDES != PyBUF_STRIDES:
-            buffer.strides = NULL
-        else:
-            buffer.strides = self._strides
-        buffer.suboffsets = NULL
-        buffer.internal = NULL
-        self._memoryview_taken += 1"""
 
     def __releasebuffer__(self, Py_buffer *buffer):
         self._memoryview_taken -= 1

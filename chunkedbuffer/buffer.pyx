@@ -6,7 +6,7 @@ include "consts.pxi"
 cimport cython
 
 from collections import deque
-from .chunk cimport Chunk, Memory
+from .chunk cimport Chunk, Memory, MemoryBySize, MemoryByBufferObject
 from .pool cimport global_pool, Pool
 from .bytearraywrapper cimport ByteArrayWrapper
 from libc.string cimport memcpy, memcmp, memchr
@@ -40,7 +40,7 @@ cdef class Buffer:
         object _chunks, _chunks_append, _chunks_popleft, _chunks_clear
         Py_ssize_t _chunks_length
         Py_ssize_t _length
-        Py_ssize_t _minimum_chunk_size, _current_chunk_size
+        Py_ssize_t _minimum_chunk_size, _current_chunk_size, _maximum_chunk_size, _input_cutoff_size
         Py_ssize_t _number_of_lower_than_expected
         Chunk _last
         ByteArrayWrapper _bytearraywrapper
@@ -51,11 +51,14 @@ cdef class Buffer:
 
     # There is allot of lazy initilization of stuff because this class needs to be fast for the common usecase.
     # TODO add maximum_chunk_size here as well
-    def __cinit__(self, bint release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool):
+    # TODO move to configuration struct the inputs ?
+    def __cinit__(self, bint release_fast_to_pool=False, Py_ssize_t minimum_chunk_size=_DEFAULT_CHUNK_SIZE, Pool pool=global_pool, Py_ssize_t maximum_chunk_size=_MAXIMUM_CHUNK_SIZE, Py_ssize_t input_cutoff_size=_DEFAULT_CUTOFF_SIZE):
+        self._release_fast_to_pool = release_fast_to_pool
         self._minimum_chunk_size = minimum_chunk_size
         self._current_chunk_size = minimum_chunk_size
+        self._maximum_chunk_size = maximum_chunk_size
+        self._input_cutoff_size = input_cutoff_size
         self._pool = pool
-        self._release_fast_to_pool = release_fast_to_pool
 
     # TODO (misc) add counters for how much compact has been done
     cdef bint _compact(self) except False:
@@ -68,7 +71,7 @@ cdef class Buffer:
         # TODO maybe for small chunks we can use PyMem_Malloc...
         if self._chunks_length > 1:
             # TODO should we put it in the pool (it's size may be too wonky, we can ofcourse take a larger portion and limit it)
-            memory = Memory(self._length, None)
+            memory = MemoryBySize(self._length, None)
             new_chunk = Chunk()
             new_chunk._init(memory)
             buf = memory._buffer
@@ -540,7 +543,9 @@ cdef class Buffer:
         last._end += nbytes
         self._length += nbytes
         if nbytes == last_size:
-            self._current_chunk_size <<= 1
+            # TODO do min between it and maximum_chunk_size
+            if self._current_chunk_size < self._maximum_chunk_size:
+                self._current_chunk_size <<= 1
             self._number_of_lower_than_expected = 0
         elif self._current_chunk_size > self._minimum_chunk_size and nbytes < (last_size >> 1):
             self._number_of_lower_than_expected += 1
@@ -549,29 +554,45 @@ cdef class Buffer:
                 self._current_chunk_size >>= 1
         return True
 
-    def extend(self, data):
+    # TODO (cython) how do i return True only or the cdef ?
+    cpdef bint append(self, data) except False:
         cdef:
             Chunk chunk
             Py_ssize_t size, leftover, start
             Py_buffer buf, buf_data
+            MemoryByBufferObject buf_obj
 
         buffer.PyObject_GetBuffer(data, &buf_data, buffer.PyBUF_SIMPLE)
-        # TODO this is annoying, but my only way around this is to bypass the except -1 in PyObject_GetBuffer defintion and handle it myself...
-        try:
-            leftover = buf_data.len
-            start = 0
-            while leftover:
-                chunk = self.get_chunk()
-                # TODO refactor this to memcpy other side ?
-                buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE)
-                size = min(buf.len, leftover)
-                memcpy(buf.buf, <const char *>buf_data.buf + start, size)
-                buffer.PyBuffer_Release(&buf)
-                self.chunk_written(size)
-                leftover -= size
-                start += size
-        finally:
-            buffer.PyBuffer_Release(&buf_data)
+        if buf_data.len >= self._input_cutoff_size:
+            buf_obj = MemoryByBufferObject()
+            buf_obj._init(buf_data)
+            chunk = Chunk()
+            chunk._init(buf_obj)
+            chunk._end = buf_data.len
+            self._add_chunk_without_length(chunk)
+            self._length += (buf_data.len)
+        else:
+            # TODO this is annoying, but my only way around this is to bypass the except -1 in PyObject_GetBuffer defintion and handle it myself...
+            try:
+                leftover = buf_data.len
+                start = 0
+                while leftover:
+                    chunk = self.get_chunk()
+                    # TODO refactor this to memcpy other side ?
+                    buffer.PyObject_GetBuffer(chunk, &buf, buffer.PyBUF_SIMPLE)
+                    size = min(buf.len, leftover)
+                    memcpy(buf.buf, <const char *>buf_data.buf + start, size)
+                    buffer.PyBuffer_Release(&buf)
+                    self.chunk_written(size)
+                    leftover -= size
+                    start += size
+            finally:
+                buffer.PyBuffer_Release(&buf_data)
+        return True
+
+    def extend(self, items):
+        for item in items:
+            self.append(item)
 
     # TODO (api) allow to specify here the new_pool / minimum_size ?
     @staticmethod

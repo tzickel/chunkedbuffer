@@ -5,15 +5,19 @@ include "consts.pxi"
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
-from cpython cimport Py_buffer, PyBuffer_FillInfo
+from cpython cimport Py_buffer, PyBuffer_FillInfo, buffer
 cimport cython
 
 
 # TODO (cython) move no_gc_clear to Buffer ?
 # TODO (cython) how to signify our size has the malloc size as well (like in bytearray)?
 @cython.no_gc_clear
-@cython.final
 cdef class Memory:
+    cdef void decrease(self):
+        pass
+
+
+cdef class MemoryBySize(Memory):
     def __cinit__(self, Py_ssize_t size, Pool pool):
         self.size = size
         self._buffer = <char *>malloc(size)
@@ -22,14 +26,25 @@ cdef class Memory:
         self._pool = pool
 
     def __dealloc__(self):
-        if self._buffer is not NULL:
-            free(self._buffer)
+        free(self._buffer)
 
-    cdef inline void decrease(self):
+    cdef void decrease(self):
         self.reference -= 1
-        # TODO reference counting should take care of this, but if no pool, we can just free the memory now.
         if self.reference == 0 and self._pool is not None:
             self._pool.return_memory(self)
+
+
+cdef class MemoryByBufferObject(Memory):
+    cdef inline void _init(self, Py_buffer buffer):
+        self._obj_buffer = buffer
+        self.size = buffer.len
+        self._buffer = <char *>buffer.buf
+
+    def __dealloc__(self):
+        buffer.PyBuffer_Release(&self._obj_buffer)
+
+    cdef void decrease(self):
+        self.reference -= 1
 
 
 # TODO (cython) move no_gc_clear to Buffer ?

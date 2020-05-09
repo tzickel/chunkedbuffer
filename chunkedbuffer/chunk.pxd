@@ -6,9 +6,23 @@ cdef class Memory:
         public Py_ssize_t size
         public Py_ssize_t reference
         char *_buffer
+
+    cdef void decrease(self)
+
+
+cdef class MemoryBySize(Memory):
+    cdef:
         Pool _pool
 
-    cdef inline void decrease(self)
+    cdef void decrease(self)
+
+
+cdef class MemoryByBufferObject(Memory):
+    cdef:
+        Py_buffer _obj_buffer
+
+    cdef inline void _init(self, Py_buffer buffer)
+    cdef void decrease(self)
 
 
 cdef class Chunk:

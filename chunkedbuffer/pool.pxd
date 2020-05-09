@@ -1,10 +1,10 @@
-from .chunk cimport Memory, Chunk
+from .chunk cimport MemoryBySize, Chunk
 cimport cython
 
 
 cdef class Pool:
     cdef Chunk get_chunk(self, size)
-    cdef void return_memory(self, Memory memory)
+    cdef void return_memory(self, MemoryBySize memory)
 
 
 cdef class SameSizePool(Pool):
@@ -16,7 +16,7 @@ cdef class SameSizePool(Pool):
         Py_ssize_t _length
 
     cdef Chunk get_chunk(self, size)
-    cdef void return_memory(self, Memory memory)
+    cdef void return_memory(self, MemoryBySize memory)
 
 
 cdef class UnboundedPool(Pool):
@@ -24,7 +24,7 @@ cdef class UnboundedPool(Pool):
         dict _memory
 
     cdef Chunk get_chunk(self, size)
-    cdef void return_memory(self, Memory memory)
+    cdef void return_memory(self, MemoryBySize memory)
 
 
 cdef Pool global_pool

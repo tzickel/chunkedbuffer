@@ -11,7 +11,7 @@ cdef class Pool:
     cdef Chunk get_chunk(self, size):
         raise NotImplementedError()
 
-    cdef void return_memory(self, Memory memory):
+    cdef void return_memory(self, MemoryBySize memory):
         raise NotImplementedError()
 
 
@@ -30,9 +30,9 @@ cdef class SameSizePool:
         if self._length:
             self._length -= 1
             return Chunk()._init(self._queue_pop())
-        return Chunk()._init(Memory(self._size, self))
+        return Chunk()._init(MemoryBySize(self._size, self))
     
-    cdef void return_memory(self, Memory memory):
+    cdef void return_memory(self, MemoryBySize memory):
         self._length += 1
         self._queue_append(memory)
 """
@@ -40,6 +40,7 @@ cdef class SameSizePool:
 
 @cython.final
 cdef class UnboundedPool:
+    # TODO if we get the power of 2, we can skip using the dictionary and use lookup array
     def __cinit__(self):
         self._memory = {}
 
@@ -54,10 +55,10 @@ cdef class UnboundedPool:
         if memory:
             chunk._init(memory.pop())
         else:
-            chunk._init(Memory(size, self))
+            chunk._init(MemoryBySize(size, self))
         return chunk
 
-    cdef void return_memory(self, Memory memory):
+    cdef void return_memory(self, MemoryBySize memory):
         entry = self._memory.get(memory.size, None)
         if entry is None:
             with cython.optimize.unpack_method_calls(False):

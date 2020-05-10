@@ -6,11 +6,11 @@ from chunkedbuffer import Buffer
 def test_simple():
     b = Buffer()
     assert bytes(b) == b''
-    b.extend(b'test')
+    b.append(b'test')
     assert b.take() == b'test'
     assert b.take() == b''
-    b.extend(b'test')
-    b.extend(b'ing')
+    b.append(b'test')
+    b.append(b'ing')
     assert b.peek() == b'testing'
     assert b.peek(3) == b'tes'
     assert b.peek(300) == b'testing'
@@ -22,9 +22,9 @@ def test_simple():
 
 def test_buffer_bytes():
     b = Buffer(minimum_chunk_size=4)
-    b.extend(b'test')
+    b.append(b'test')
     assert b == b'test'
-    b.extend(b'ing')
+    b.append(b'ing')
     assert b == b'testing'
     assert b.peek(3) == b'tes'
 
@@ -32,7 +32,7 @@ def test_buffer_bytes():
 def test_buffer_len():
     b = Buffer()
     assert len(b) == 0
-    b.extend(b'test')
+    b.append(b'test')
     assert len(b) == 4
     assert b.peek() == b'test'
     assert len(b) == 4
@@ -50,7 +50,7 @@ def test_buffer_find():
     assert b.find(b'a') == -1
     assert b.find(b'', 1) == -1
 
-    b.extend(b'test')
+    b.append(b'test')
     assert b.find(b'') == 0
     assert b.find(b'a') == -1
     assert b.find(b'', 1) == 1
@@ -67,30 +67,30 @@ def test_buffer_find():
     assert b.find(b't', 5) == -1
 
     b = Buffer(minimum_chunk_size=4)
-    b.extend(b'test')
-    b.extend(b'ing')
+    b.append(b'test')
+    b.append(b'ing')
     b.find(b'i') == 4
     b.find(b'i', 4) == 4
     b.find(b'n', 3, 4) == -1
 
     b = Buffer(minimum_chunk_size=2048)
-    b.extend(b'a' * 2047)
-    b.extend(b'\r')
-    b.extend(b'\n')
-    b.extend(b'a' * 2047)
+    b.append(b'a' * 2047)
+    b.append(b'\r')
+    b.append(b'\n')
+    b.append(b'a' * 2047)
     assert b.find(b'\r\n') == 2047
 
     b = Buffer(minimum_chunk_size=2048)
-    b.extend(b'a' * 2048)
-    b.extend(b'\r\n')
-    b.extend(b'a' * 2046)
+    b.append(b'a' * 2048)
+    b.append(b'\r\n')
+    b.append(b'a' * 2046)
     assert b.find(b'\r\n') == 2048
 
     b = Buffer(minimum_chunk_size=2048)
-    b.extend(b'a' * 2046)
-    b.extend(b'te')
-    b.extend(b'st')
-    b.extend(b'a' * 2046)
+    b.append(b'a' * 2046)
+    b.append(b'te')
+    b.append(b'st')
+    b.append(b'a' * 2046)
     assert b.find(b'\r\n') == -1
     assert b.find(b'test') == 2046
     assert b.find(b'es') == 2047
@@ -100,10 +100,10 @@ def test_buffer_find():
     assert b.find(b'st') == 2048
 
     b = Buffer(minimum_chunk_size=2048)
-    b.extend(b'a' * 2046)
-    b.extend(b'te')
-    b.extend(b'st')
-    b.extend(b'a' * 2046)
+    b.append(b'a' * 2046)
+    b.append(b'te')
+    b.append(b'st')
+    b.append(b'a' * 2046)
     b.skip(2046)
     assert b.find(b'\r\n') == -1
     assert b.find(b'test') == 0
@@ -113,9 +113,9 @@ def test_buffer_find():
 
 def test_buffer_takeuntil():
     b = Buffer()
-    b.extend(b'test')
+    b.append(b'test')
     assert b.takeuntil(b'\r\n') == None
-    b.extend(b'\r\ning')
+    b.append(b'\r\ning')
     assert b.takeuntil(b'\r\n') == b'test'
     assert b.takeuntil(b'\r\n') == None
     assert b.takeuntil(b'ing', True) == b'ing'
@@ -126,8 +126,8 @@ def test_buffer_chunks():
     b = Buffer(minimum_chunk_size=4)
     with pytest.raises(ValueError):
         b.chunks()
-    b.extend(b'test')
-    b.extend(b'ing')
+    b.append(b'test')
+    b.append(b'ing')
     with pytest.raises(ValueError):
         b.chunks()
     a = b.take()

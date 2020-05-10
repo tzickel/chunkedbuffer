@@ -6,13 +6,13 @@ It is possible to achieve amortized zero-memory allocation and zero-memory copyi
 Please note that this project is currently alpha quality and the API is not finalized. Please provide feedback if you think the API is convenient enough or not. A permissive license will be chosen once the API will be more mature for wide spread consumption.
 
 ## Usage
-A typical use case would be to create a Buffer instance and writing data to it with get_chunk()/chunk_written() methods for API which provide an readinto like method or with the extend() method for any bytes like object.
+A typical use case would be to create a Buffer instance and writing data to it with get_chunk()/chunk_written() methods for API which provide an readinto like method or with the append()/extend() method for any bytes like object.
 
 ```python
 from chunkedbuffer import buffer
 
 b = Buffer()
-b.extend(b'test\r\n')
+b.append(b'test\r\n')
 ```
 
 You can then call the find() method to find a given delimiter in the stream or call take()/peek() methods to read bytes from the stream.
@@ -28,6 +28,12 @@ or the same:
 
 ```python
 msg = b.takeuntil(b'\r\n') # Will return a Buffer points to 'test' or none if the delimiter is not found
+```
+
+or even faster:
+
+```python
+msg = b.takeline() # Same as before, only a faster implmentation, and looks also for just \n or \r\n
 ```
 
 Those methods return a new Buffer which points only to that specific data without copying it.
@@ -55,7 +61,6 @@ Replace master with the specific branch or version tag you want.
 - [ ] Resolve all TODO in code
 - [ ] More test coverage
 - [ ] A pure python version for PyPy
-- [ ] Support extend to hold bytes like objects instead of coping them
 
 ## Example
 ```python
@@ -69,7 +74,7 @@ if __name__ == "__main__":
     # This is a toy chunked message parser to demonstrate some of the API
     buffer = Buffer()
     # Since we aren't reading from I/O let's just copy the message inside
-    buffer.extend(msg)
+    buffer.append(msg)
     # We will keep the pointers to the message contents in a list
     message_parts = []
     # length will be None when we need to read the length of the part or the number of bytes left to read in a part
@@ -111,9 +116,12 @@ if __name__ == "__main__":
 
 ## API
 ```python
-# minimum_chunk_size = The minimum chunk size to be aqquired from the pool
+# release_fast_to_pool = not yet implmented
+# minimum_chunk_size = The minimum chunk size to be acquired from the pool
 # pool = Which pool to take new Memory objects from, current default global_pool is an UnboundedPool
-Buffer(minimum_chunk_size=2048, pool=global_pool)
+# maximum_chunk_size = The maximum chink size to be acquired from the pool
+# input_cutoff_size = The maximum number of bytes to copy when appending, before just pointing to the data
+Buffer(release_fast_to_pool=False, minimum_chunk_size=2048, pool=global_pool, maximum_chunk_size=262144, input_cutoff_size=4096)
     # Write API
 
     # For API which accept a buffer to write into:
@@ -129,7 +137,11 @@ Buffer(minimum_chunk_size=2048, pool=global_pool)
     # For API which already provide data to be added to the buffer:
 
     # Can be used as an alternative if you already have the data you want to add to the buffer
-    # Complexity: Zero amortized memory allocation (when using the default pool)
+    # Complexity: Zero amortized memory allocation (when using the default pool), Zero memory copy if data's length is above input_cutoff_size
+    append(data)
+
+    # Copy multiple items into the buffer
+    # Complexity: Just like append's but for each of the elements in data
     extend(data)
 
     # Read API
@@ -149,6 +161,9 @@ Buffer(minimum_chunk_size=2048, pool=global_pool)
     # A faster version of takeuntil() which will take until \n found, if include_seperator is False, will remove ending \r\n or \n
     # Zero memory copy
     takeline(s, include_seperator=False)
+    # Checks if buffer startswith s, if so skips it and returns True
+    # Zero memory copy
+    skip_if_startswith(s)
 
     # Non-modifing methods
 
@@ -185,8 +200,6 @@ Buffer(minimum_chunk_size=2048, pool=global_pool)
 
 ### API Roadmap
 - [ ] Add start option to takeuntil and takeline
-- [ ] Add Buffer constructor parameter, maximum_chunk_size
-- [ ] Add Buffer constructor parameter, cutoff_size
 - [ ] Add Buffer constructor parameter, release_fast_to_pool
 - [ ] Support Buffer without any Pool usage
 

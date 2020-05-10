@@ -260,18 +260,20 @@ cdef class Buffer:
                         chunk_length = chunk._end - chunk._start
                         if prev_chunk is not None:
                             how_much1 = prev_chunk.copy_to(tmp, -buf_s.len + 1, buf_s.len - 1)
-                            how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
-                            how_much = how_much1 + how_much2
-                            if how_much < buf_s.len:
-                                # TODO is or == ?
-                                if chunk is self._last:
-                                    return -1
-                                else:
-                                    # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
-                                    raise NotImplementedError()
-                            idx = self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much).find(s)
-                            if idx != -1:
-                                return res_idx + idx - how_much1
+                            if how_much1 != 0:
+                                # TODO this calculation can be wrong if from how_much1 there was less, we need to take more from how_much2 (buf_s.len - 1)
+                                how_much2 = chunk.copy_to(tmp + how_much1, 0, buf_s.len - 1)
+                                how_much = how_much1 + how_much2
+                                if how_much < buf_s.len:
+                                    # TODO is or == ?
+                                    if chunk is self._last:
+                                        return -1
+                                    else:
+                                        # We rather bug out then miss, this should not happen in real use where s < minimum_chunk_size?
+                                        raise NotImplementedError()
+                                idx = self.bytearraywrapper_with_address_and_length(<char *>tmp, how_much).find(s)
+                                if idx != -1:
+                                    return res_idx + idx - how_much1
                         if start >= chunk_length:
                             res_idx += chunk_length
                             start -= chunk_length
@@ -499,6 +501,16 @@ cdef class Buffer:
             chunks.append((chunk._start, chunk._end, chunk._readonly, chunk._memory, chunk._memory.size, chunk._memory.reference))
         ret = {'chunks': chunks, 'current_chunk_size': self._current_chunk_size}
         return ret
+
+    def skip_if_startswith(self, s):
+        cdef:
+            Py_ssize_t l
+        # TODO uses len(s)
+        l = len(s)
+        if self.find(s, 0, l) == 0:
+            self.skip(l)
+            return True
+        return False
 
     # Write API
     # TODO (document) we ignore sizehint for now...

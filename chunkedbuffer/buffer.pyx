@@ -573,6 +573,15 @@ cdef class Buffer:
             Py_ssize_t size, leftover, start
             Py_buffer buf, buf_data
             MemoryByBufferObject buf_obj
+            Buffer temp_buffer
+
+        if isinstance(data, Buffer):
+            temp_buffer = data
+            # We check for _not_origin because else, the chunks will be writable and point to the wrong part of the memory
+            if temp_buffer._chunks_length > 1 and temp_buffer._not_origin is True:
+                for chunk in temp_buffer._chunks:
+                    self.append(chunk)
+                return True
 
         buffer.PyObject_GetBuffer(data, &buf_data, buffer.PyBUF_SIMPLE)
         if buf_data.len >= self._input_cutoff_size:
